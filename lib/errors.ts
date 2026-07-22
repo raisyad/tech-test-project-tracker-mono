@@ -27,6 +27,21 @@ export class DependentEntityExistsError extends Error {
   }
 }
 
+export class ReadonlyFieldError extends Error {
+  field: string;
+
+  constructor(field: string) {
+    super(`Field ${field} tidak bisa ditulis langsung`);
+    this.field = field;
+  }
+}
+
+export class InvalidParentTaskError extends Error {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
 export function toErrorResponse(err: unknown): NextResponse | null {
   if (err instanceof CircularDependencyError) {
     return NextResponse.json(
@@ -44,6 +59,18 @@ export function toErrorResponse(err: unknown): NextResponse | null {
     return NextResponse.json(
       { error: "DEPENDENT_ENTITY_EXISTS", dependents: err.dependents },
       { status: 409 },
+    );
+  }
+  if (err instanceof ReadonlyFieldError) {
+    return NextResponse.json(
+      { error: "READONLY_FIELD", field: err.field },
+      { status: 422 },
+    );
+  }
+  if (err instanceof InvalidParentTaskError) {
+    return NextResponse.json(
+      { error: "INVALID_PARENT_TASK", message: err.message },
+      { status: 422 },
     );
   }
   return null;
