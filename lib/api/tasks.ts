@@ -3,20 +3,29 @@ import type { ProjectStatus } from "@/lib/api/projects";
 export type Task = {
   id: number;
   projectId: number;
+  parentTaskId: number | null;
   name: string;
   status: ProjectStatus;
   weight: number;
   dependsOn: number[];
+  dimmed?: boolean;
   createdAt: string;
   updatedAt: string;
 };
 
 export type TaskInput = {
   projectId: number;
+  parentTaskId?: number | null;
   name: string;
   status: ProjectStatus;
   weight: number;
   dependsOn?: number[];
+};
+
+export type TaskListFilters = {
+  projectId?: number;
+  status?: ProjectStatus;
+  search?: string;
 };
 
 function buildErrorMessage(body: Record<string, unknown>, status: number): string {
@@ -33,6 +42,10 @@ function buildErrorMessage(body: Record<string, unknown>, status: number): strin
       const names = dependents?.map((d) => d.name).join(", ");
       return `Masih di-depend oleh task lain: ${names}`;
     }
+    case "READONLY_FIELD":
+      return `Field ${body.field} dihitung otomatis dari subtask, tidak bisa diubah manual`;
+    case "INVALID_PARENT_TASK":
+      return typeof body.message === "string" ? body.message : "Parent task tidak valid";
     default:
       return typeof body.error === "string" ? body.error : `Request failed (${status})`;
   }
@@ -48,8 +61,15 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return body.data as T;
 }
 
-export function fetchTasks(): Promise<Task[]> {
-  return fetch("/api/tasks").then((res) => handleResponse<Task[]>(res));
+export function fetchTasks(filters: TaskListFilters = {}): Promise<Task[]> {
+  const params = new URLSearchParams();
+  if (filters.projectId) params.set("projectId", String(filters.projectId));
+  if (filters.status) params.set("status", filters.status);
+  if (filters.search) params.set("search", filters.search);
+  const query = params.toString();
+  return fetch(`/api/tasks${query ? `?${query}` : ""}`).then((res) =>
+    handleResponse<Task[]>(res),
+  );
 }
 
 export function createTask(input: TaskInput): Promise<Task> {

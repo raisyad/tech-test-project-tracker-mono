@@ -45,6 +45,7 @@ const emptyProjectForm: ProjectFormState = {
 
 type TaskFormState = {
   projectId: number | "";
+  parentTaskId: number | "";
   name: string;
   status: ProjectStatus;
   weight: number | "";
@@ -53,23 +54,46 @@ type TaskFormState = {
 
 const emptyTaskForm: TaskFormState = {
   projectId: "",
+  parentTaskId: "",
   name: "",
   status: "draft",
   weight: "",
   dependsOn: [],
 };
 
+function getTaskDepth(task: Task, taskById: Map<number, Task>): number {
+  let depth = 0;
+  let current: Task | undefined = task;
+  while (current && current.parentTaskId !== null) {
+    current = taskById.get(current.parentTaskId);
+    if (!current) break;
+    depth++;
+  }
+  return depth;
+}
+
 type PanelMode = "project" | "task" | null;
 
 export default function Home() {
   const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState<ProjectStatus | "">("");
+  const [searchTerm, setSearchTerm] = useState("");
+
   const { data: projects, isLoading: isLoadingProjects } = useQuery({
     queryKey: ["projects"],
     queryFn: fetchProjects,
   });
   const { data: tasks, isLoading: isLoadingTasks } = useQuery({
-    queryKey: ["tasks"],
-    queryFn: fetchTasks,
+    queryKey: ["tasks", statusFilter, searchTerm],
+    queryFn: () =>
+      fetchTasks({
+        status: statusFilter || undefined,
+        search: searchTerm || undefined,
+      }),
+  });
+  const { data: allTasks } = useQuery({
+    queryKey: ["tasks", "all"],
+    queryFn: () => fetchTasks(),
   });
 
   const [panelMode, setPanelMode] = useState<PanelMode>(null);
@@ -98,11 +122,12 @@ export default function Home() {
     setPanelMode("project");
   }
 
-  function openCreateTaskPanel(projectId?: number) {
+  function openCreateTaskPanel(projectId?: number, parentTaskId?: number) {
     setEditingTask(null);
     setTaskForm({
       ...emptyTaskForm,
       projectId: projectId ?? projects?.[0]?.id ?? "",
+      parentTaskId: parentTaskId ?? "",
     });
     setErrorMessage(null);
     setPanelMode("task");
@@ -112,6 +137,7 @@ export default function Home() {
     setEditingTask(task);
     setTaskForm({
       projectId: task.projectId,
+      parentTaskId: task.parentTaskId ?? "",
       name: task.name,
       status: task.status,
       weight: task.weight,
@@ -177,8 +203,9 @@ export default function Home() {
       id: number;
       input: {
         projectId: number;
+        parentTaskId: number | null;
         name: string;
-        status: ProjectStatus;
+        status?: ProjectStatus;
         weight: number;
         dependsOn: number[];
       };
@@ -215,17 +242,20 @@ export default function Home() {
     e.preventDefault();
     setErrorMessage(null);
     if (taskForm.projectId === "" || taskForm.weight === "") return;
-    const input = {
+    const baseInput = {
       projectId: Number(taskForm.projectId),
+      parentTaskId: taskForm.parentTaskId === "" ? null : Number(taskForm.parentTaskId),
       name: taskForm.name,
-      status: taskForm.status,
       weight: Number(taskForm.weight),
       dependsOn: taskForm.dependsOn,
     };
     if (editingTask) {
+      const input = editingTaskHasChildren
+        ? baseInput
+        : { ...baseInput, status: taskForm.status };
       updateTaskMutation.mutate({ id: editingTask.id, input });
     } else {
-      createTaskMutation.mutate(input);
+      createTaskMutation.mutate({ ...baseInput, status: taskForm.status });
     }
   }
 
@@ -254,6 +284,9 @@ export default function Home() {
 
   const isLoading = isLoadingProjects || isLoadingTasks;
   const hasProjects = (projects?.length ?? 0) > 0;
+  const editingTaskHasChildren = editingTask
+    ? (allTasks?.some((t) => t.parentTaskId === editingTask.id) ?? false)
+    : false;
 
   return (
     <div className="flex h-screen bg-zinc-50 font-sans dark:bg-black">
@@ -277,6 +310,28 @@ export default function Home() {
           </button>
         </header>
 
+        <div className="flex items-center gap-3 border-b border-zinc-200 px-6 py-3 dark:border-zinc-800">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as ProjectStatus | "")}
+            className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          >
+            <option value="">Semua status</option>
+            {Object.entries(STATUS_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            placeholder="Cari task..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="flex-1 rounded-md border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          />
+        </div>
+
         <div className="flex-1 px-6 py-4">
           {isLoading && (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">Memuat...</p>
@@ -289,10 +344,25 @@ export default function Home() {
           )}
 
           <ul className="space-y-3">
-            {projects?.map((project) => {
-              const projectTasks = tasks?.filter((t) => t.projectId === project.id) ?? [];
-              return (
-                <li key={project.id}>
+            {projects
+              ?.map((project) => {
+                const projectTasks = tasks?.filter((t) => t.projectId === project.id) ?? [];
+                const taskById = new Map(projectTasks.map((t) => [t.id, t]));
+
+                const hasActiveFilter = statusFilter !== "" || searchTerm !== "";
+                const projectMatches =
+                  (!statusFilter || project.status === statusFilter) &&
+                  (!searchTerm ||
+                    project.name.toLowerCase().includes(searchTerm.toLowerCase()));
+                const visible = !hasActiveFilter || projectMatches || projectTasks.length > 0;
+                const dimmed = hasActiveFilter && !projectMatches && projectTasks.length > 0;
+
+                return { project, projectTasks, taskById, visible, dimmed };
+              })
+              .filter((entry) => entry.visible)
+              .map(({ project, projectTasks, taskById, dimmed }) => {
+                return (
+                <li key={project.id} className={dimmed ? "opacity-60" : undefined}>
                   <div className="rounded-md border border-zinc-200 dark:border-zinc-800">
                     <div className="flex items-center gap-2 px-4 py-3">
                       <button
@@ -325,26 +395,40 @@ export default function Home() {
                     </div>
 
                     {projectTasks.length > 0 && (
-                      <ul className="space-y-1 border-t border-zinc-100 px-4 py-2 pl-8 dark:border-zinc-900">
+                      <ul className="space-y-1 border-t border-zinc-100 px-4 py-2 dark:border-zinc-900">
                         {projectTasks.map((task) => (
-                          <li key={task.id}>
-                            <button
-                              type="button"
-                              onClick={() => openEditTaskPanel(task)}
-                              className="w-full rounded-md px-2 py-1.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="text-sm text-zinc-800 dark:text-zinc-200">
-                                  {task.name}
-                                </span>
-                                <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                                  {STATUS_LABEL[task.status]}
-                                </span>
-                              </div>
-                              <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                                Bobot {task.weight}
-                              </div>
-                            </button>
+                          <li
+                            key={task.id}
+                            style={{ paddingLeft: getTaskDepth(task, taskById) * 20 + 16 }}
+                            className={task.dimmed ? "opacity-60" : undefined}
+                          >
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => openEditTaskPanel(task)}
+                                className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm text-zinc-800 dark:text-zinc-200">
+                                    {task.name}
+                                  </span>
+                                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                                    {STATUS_LABEL[task.status]}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                  Bobot {task.weight}
+                                </div>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openCreateTaskPanel(project.id, task.id)}
+                                title="Tambah subtask ke task ini"
+                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-zinc-300 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                              >
+                                +
+                              </button>
+                            </div>
                           </li>
                         ))}
                       </ul>
@@ -555,6 +639,34 @@ export default function Home() {
 
                       <div>
                         <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                          Parent Task
+                        </label>
+                        <select
+                          value={taskForm.parentTaskId}
+                          onChange={(e) =>
+                            setTaskForm({
+                              ...taskForm,
+                              parentTaskId: e.target.value === "" ? "" : Number(e.target.value),
+                            })
+                          }
+                          className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                        >
+                          <option value="">Tidak ada (top-level task)</option>
+                          {allTasks
+                            ?.filter(
+                              (t) =>
+                                t.id !== editingTask?.id && t.projectId === taskForm.projectId,
+                            )
+                            .map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.name}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
                           Nama
                         </label>
                         <input
@@ -572,22 +684,35 @@ export default function Home() {
                         <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
                           Status
                         </label>
-                        <select
-                          value={taskForm.status}
-                          onChange={(e) =>
-                            setTaskForm({
-                              ...taskForm,
-                              status: e.target.value as ProjectStatus,
-                            })
-                          }
-                          className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                        >
-                          {Object.entries(STATUS_LABEL).map(([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
+                        {editingTaskHasChildren ? (
+                          <>
+                            <div className="mt-1">
+                              <span className="inline-block rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                                {STATUS_LABEL[editingTask?.status ?? "draft"]}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-zinc-400">
+                              Dihitung otomatis dari status subtask.
+                            </p>
+                          </>
+                        ) : (
+                          <select
+                            value={taskForm.status}
+                            onChange={(e) =>
+                              setTaskForm({
+                                ...taskForm,
+                                status: e.target.value as ProjectStatus,
+                              })
+                            }
+                            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                          >
+                            {Object.entries(STATUS_LABEL).map(([value, label]) => (
+                              <option key={value} value={value}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                       </div>
 
                       <div>
@@ -614,7 +739,7 @@ export default function Home() {
                           Dependencies
                         </label>
                         <div className="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-md border border-zinc-300 p-2 dark:border-zinc-700">
-                          {tasks
+                          {allTasks
                             ?.filter((t) => t.id !== editingTask?.id)
                             .map((t) => (
                               <label
@@ -636,7 +761,7 @@ export default function Home() {
                                 {t.name}
                               </label>
                             ))}
-                          {tasks?.filter((t) => t.id !== editingTask?.id).length === 0 && (
+                          {allTasks?.filter((t) => t.id !== editingTask?.id).length === 0 && (
                             <p className="text-xs text-zinc-400">Belum ada task lain.</p>
                           )}
                         </div>
