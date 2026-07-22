@@ -6,6 +6,7 @@ export type Task = {
   name: string;
   status: ProjectStatus;
   weight: number;
+  dependsOn: number[];
   createdAt: string;
   updatedAt: string;
 };
@@ -15,12 +16,32 @@ export type TaskInput = {
   name: string;
   status: ProjectStatus;
   weight: number;
+  dependsOn?: number[];
 };
+
+function buildErrorMessage(body: Record<string, unknown>, status: number): string {
+  switch (body.error) {
+    case "DEPENDENCY_NOT_DONE": {
+      const blocking = body.blockingDependencies as { name: string }[] | undefined;
+      const names = blocking?.map((b) => b.name).join(", ");
+      return `Tidak bisa diubah ke Done, dependency belum Done: ${names}`;
+    }
+    case "CIRCULAR_DEPENDENCY":
+      return "Perubahan ini akan membentuk circular dependency antar task";
+    case "DEPENDENT_ENTITY_EXISTS": {
+      const dependents = body.dependents as { name: string }[] | undefined;
+      const names = dependents?.map((d) => d.name).join(", ");
+      return `Masih di-depend oleh task lain: ${names}`;
+    }
+    default:
+      return typeof body.error === "string" ? body.error : `Request failed (${status})`;
+  }
+}
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error ?? `Request failed (${res.status})`);
+    throw new Error(buildErrorMessage(body, res.status));
   }
   if (res.status === 204) return undefined as T;
   const body = await res.json();

@@ -46,6 +46,7 @@ type TaskFormState = {
   name: string;
   status: ProjectStatus;
   weight: number | "";
+  dependsOn: number[];
 };
 
 const emptyTaskForm: TaskFormState = {
@@ -53,6 +54,7 @@ const emptyTaskForm: TaskFormState = {
   name: "",
   status: "draft",
   weight: "",
+  dependsOn: [],
 };
 
 type PanelMode = "project" | "task" | null;
@@ -110,6 +112,7 @@ export default function Home() {
       name: task.name,
       status: task.status,
       weight: task.weight,
+      dependsOn: task.dependsOn,
     });
     setErrorMessage(null);
     setPanelMode("task");
@@ -169,7 +172,13 @@ export default function Home() {
       input,
     }: {
       id: number;
-      input: { projectId: number; name: string; status: ProjectStatus; weight: number };
+      input: {
+        projectId: number;
+        name: string;
+        status: ProjectStatus;
+        weight: number;
+        dependsOn: number[];
+      };
     }) => updateTask(id, input),
     onSuccess: () => {
       invalidateTasks();
@@ -208,6 +217,7 @@ export default function Home() {
       name: taskForm.name,
       status: taskForm.status,
       weight: Number(taskForm.weight),
+      dependsOn: taskForm.dependsOn,
     };
     if (editingTask) {
       updateTaskMutation.mutate({ id: editingTask.id, input });
@@ -561,6 +571,39 @@ export default function Home() {
                           }
                           className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                         />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                          Dependencies
+                        </label>
+                        <div className="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-md border border-zinc-300 p-2 dark:border-zinc-700">
+                          {tasks
+                            ?.filter((t) => t.id !== editingTask?.id)
+                            .map((t) => (
+                              <label
+                                key={t.id}
+                                className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={taskForm.dependsOn.includes(t.id)}
+                                  onChange={(e) =>
+                                    setTaskForm({
+                                      ...taskForm,
+                                      dependsOn: e.target.checked
+                                        ? [...taskForm.dependsOn, t.id]
+                                        : taskForm.dependsOn.filter((id) => id !== t.id),
+                                    })
+                                  }
+                                />
+                                {t.name}
+                              </label>
+                            ))}
+                          {tasks?.filter((t) => t.id !== editingTask?.id).length === 0 && (
+                            <p className="text-xs text-zinc-400">Belum ada task lain.</p>
+                          )}
+                        </div>
                       </div>
                     </div>
 
