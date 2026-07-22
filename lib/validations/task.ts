@@ -6,6 +6,7 @@ export const createTaskSchema = z.object({
   name: z.string().trim().min(1, "Nama wajib diisi").max(255),
   status: projectStatusEnum.default("draft"),
   weight: z.coerce.number().int().positive("weight harus lebih dari 0"),
+  dependsOn: z.array(z.coerce.number().int().positive()).optional(),
 });
 
 export const updateTaskSchema = z.object({
@@ -13,6 +14,7 @@ export const updateTaskSchema = z.object({
   name: z.string().trim().min(1, "Nama wajib diisi").max(255).optional(),
   status: projectStatusEnum.optional(),
   weight: z.coerce.number().int().positive("weight harus lebih dari 0").optional(),
+  dependsOn: z.array(z.coerce.number().int().positive()).optional(),
 });
 
 export const taskListQuerySchema = z.object({
