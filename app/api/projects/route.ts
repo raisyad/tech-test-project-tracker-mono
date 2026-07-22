@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
   createProjectSchema,
+  findReadonlyProjectField,
   projectListQuerySchema,
 } from "@/lib/validations/project";
 import { createProject, listProjects } from "@/lib/services/project.service";
@@ -26,6 +27,15 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
+
+  const readonlyField = findReadonlyProjectField(body);
+  if (readonlyField) {
+    return NextResponse.json(
+      { error: "READONLY_FIELD", field: readonlyField },
+      { status: 422 },
+    );
+  }
+
   const parsed = createProjectSchema.safeParse(body);
 
   if (!parsed.success) {

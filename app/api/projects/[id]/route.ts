@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@/app/generated/prisma/client";
-import { updateProjectSchema } from "@/lib/validations/project";
+import { findReadonlyProjectField, updateProjectSchema } from "@/lib/validations/project";
 import {
   deleteProject,
   getProjectById,
@@ -41,6 +41,15 @@ export async function PATCH(
   }
 
   const body = await request.json();
+
+  const readonlyField = findReadonlyProjectField(body);
+  if (readonlyField) {
+    return NextResponse.json(
+      { error: "READONLY_FIELD", field: readonlyField },
+      { status: 422 },
+    );
+  }
+
   const parsed = updateProjectSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
