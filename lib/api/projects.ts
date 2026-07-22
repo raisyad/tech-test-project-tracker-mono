@@ -28,6 +28,13 @@ function buildErrorMessage(body: Record<string, unknown>, status: number): strin
       const names = dependents?.map((d) => d.name).join(", ");
       return `Masih di-depend oleh entity lain: ${names}`;
     }
+    case "SCHEDULE_OVERLAP": {
+      const conflict = body.conflictingProject as
+        | { name: string; startDate: string; endDate: string }
+        | undefined;
+      if (!conflict) return "Jadwal bentrok dengan project lain";
+      return `Jadwal bentrok dengan "${conflict.name}" (${conflict.startDate.slice(0, 10)} – ${conflict.endDate.slice(0, 10)})`;
+    }
     default:
       return typeof body.error === "string" ? body.error : `Request failed (${status})`;
   }
