@@ -1,5 +1,3 @@
-// Prisma mengembalikan BigInt (id) dan Decimal (completion_progress), keduanya
-// tidak bisa langsung di-JSON.stringify oleh Next.js Route Handler.
 export function serializeProject<
   T extends { id: bigint; completionProgress: unknown },
 >(project: T) {
@@ -7,5 +5,15 @@ export function serializeProject<
     ...project,
     id: Number(project.id),
     completionProgress: Number(project.completionProgress),
+  };
+}
+
+export function serializeTask<T extends { id: bigint; projectId: bigint }>(
+  task: T,
+) {
+  return {
+    ...task,
+    id: Number(task.id),
+    projectId: Number(task.projectId),
   };
 }

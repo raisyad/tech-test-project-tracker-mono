@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { serializeProject } from "@/lib/serialize";
+import { serializeProject, serializeTask } from "@/lib/serialize";
 import type {
   CreateProjectInput,
   UpdateProjectInput,
@@ -29,7 +29,7 @@ export async function getProjectById(id: bigint) {
   if (!project) return null;
   return {
     ...serializeProject(project),
-    tasks: project.tasks.map((t) => ({ ...t, id: Number(t.id), projectId: Number(t.projectId) })),
+    tasks: project.tasks.map(serializeTask),
   };
 }
 
