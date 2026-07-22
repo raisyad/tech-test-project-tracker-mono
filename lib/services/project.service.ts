@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { serializeProject, serializeTask } from "@/lib/serialize";
 import { syncProjectDependencies } from "@/lib/services/project-dependency.service";
+import { lockScheduleAndCheckOverlap } from "@/lib/services/schedule.service";
 import { DependentEntityExistsError } from "@/lib/errors";
 import type {
   CreateProjectInput,
@@ -51,6 +52,11 @@ export async function getProjectById(id: bigint) {
 
 export async function createProject(data: CreateProjectInput) {
   const project = await prisma.$transaction(async (tx) => {
+    await lockScheduleAndCheckOverlap(tx, {
+      startDate: data.startDate,
+      endDate: data.endDate,
+    });
+
     const created = await tx.project.create({
       data: {
         name: data.name,
@@ -72,6 +78,18 @@ export async function createProject(data: CreateProjectInput) {
 export async function updateProject(id: bigint, data: UpdateProjectInput) {
   const project = await prisma.$transaction(async (tx) => {
     const { dependsOn, ...rest } = data;
+
+    if (data.startDate !== undefined || data.endDate !== undefined) {
+      const existing = await tx.project.findUniqueOrThrow({
+        where: { id },
+        select: { startDate: true, endDate: true },
+      });
+      await lockScheduleAndCheckOverlap(tx, {
+        excludeProjectId: id,
+        startDate: data.startDate ?? existing.startDate,
+        endDate: data.endDate ?? existing.endDate,
+      });
+    }
 
     if (dependsOn !== undefined) {
       await syncProjectDependencies(tx, id, dependsOn);
