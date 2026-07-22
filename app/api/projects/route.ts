@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
   const parsed = projectListQuerySchema.safeParse({
     status: searchParams.get("status") ?? undefined,
     search: searchParams.get("search") ?? undefined,
+    dependsOnId: searchParams.get("dependsOnId") ?? undefined,
   });
 
   if (!parsed.success) {

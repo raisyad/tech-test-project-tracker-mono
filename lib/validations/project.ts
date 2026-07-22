@@ -41,6 +41,7 @@ export const updateProjectSchema = z
 export const projectListQuerySchema = z.object({
   status: projectStatusEnum.optional(),
   search: z.string().trim().min(1).optional(),
+  dependsOnId: z.coerce.number().int().positive().optional(),
 });
 
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;

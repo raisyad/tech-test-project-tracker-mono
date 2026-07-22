@@ -1,6 +1,8 @@
+type TrackedEntity = { id: number } & Record<string, unknown>;
+
 export type ChangeTracker = {
-  projects: Map<number, Record<string, unknown>>;
-  tasks: Map<number, Record<string, unknown>>;
+  projects: Map<number, TrackedEntity>;
+  tasks: Map<number, TrackedEntity>;
 };
 
 export function createChangeTracker(): ChangeTracker {

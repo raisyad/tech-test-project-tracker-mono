@@ -25,13 +25,32 @@ function withDependsOn<T extends { id: bigint; completionProgress: unknown }>(
   };
 }
 
+export async function attachProjectDependsOn(ids: number[]): Promise<Map<number, number[]>> {
+  if (ids.length === 0) return new Map();
+  const rows = await prisma.projectDependency.findMany({
+    where: { projectId: { in: ids.map(BigInt) } },
+    select: { projectId: true, dependsOnProjectId: true },
+  });
+  const map = new Map<number, number[]>();
+  for (const row of rows) {
+    const key = Number(row.projectId);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(Number(row.dependsOnProjectId));
+  }
+  return map;
+}
+
 export async function listProjects(filters: {
   status?: "draft" | "in_progress" | "done";
   search?: string;
+  dependsOnId?: number;
 }) {
   const where: Prisma.ProjectWhereInput = {};
   if (filters.status) where.status = filters.status;
   if (filters.search) where.name = { contains: filters.search };
+  if (filters.dependsOnId) {
+    where.dependsOn = { some: { dependsOnProjectId: BigInt(filters.dependsOnId) } };
+  }
 
   const projects = await prisma.project.findMany({
     where,
@@ -82,7 +101,21 @@ export async function createProject(data: CreateProjectInput) {
   });
 
   const serialized = serializeProject(project);
-  return { project: serialized, affected: collectAffected(tracker, serialized.id) };
+  const { projects: affectedProjects, tasks: affectedTasks } = collectAffected(
+    tracker,
+    serialized.id,
+  );
+  const depsMap = await attachProjectDependsOn([
+    serialized.id,
+    ...affectedProjects.map((p) => p.id),
+  ]);
+  return {
+    project: { ...serialized, dependsOn: depsMap.get(serialized.id) ?? [] },
+    affected: {
+      projects: affectedProjects.map((p) => ({ ...p, dependsOn: depsMap.get(p.id) ?? [] })),
+      tasks: affectedTasks,
+    },
+  };
 }
 
 export async function updateProject(id: bigint, data: UpdateProjectInput) {
@@ -120,7 +153,21 @@ export async function updateProject(id: bigint, data: UpdateProjectInput) {
   });
 
   const serialized = serializeProject(project);
-  return { project: serialized, affected: collectAffected(tracker, serialized.id) };
+  const { projects: affectedProjects, tasks: affectedTasks } = collectAffected(
+    tracker,
+    serialized.id,
+  );
+  const depsMap = await attachProjectDependsOn([
+    serialized.id,
+    ...affectedProjects.map((p) => p.id),
+  ]);
+  return {
+    project: { ...serialized, dependsOn: depsMap.get(serialized.id) ?? [] },
+    affected: {
+      projects: affectedProjects.map((p) => ({ ...p, dependsOn: depsMap.get(p.id) ?? [] })),
+      tasks: affectedTasks,
+    },
+  };
 }
 
 export async function deleteProject(id: bigint) {

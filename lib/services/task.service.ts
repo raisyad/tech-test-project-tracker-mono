@@ -11,7 +11,7 @@ import {
   getDescendantIds,
   recalculateTaskChain,
 } from "@/lib/services/task-hierarchy.service";
-import { recalculateProject } from "@/lib/services/project.service";
+import { attachProjectDependsOn, recalculateProject } from "@/lib/services/project.service";
 import { createChangeTracker, collectAffected } from "@/lib/change-tracker";
 import {
   DependentEntityExistsError,
@@ -28,6 +28,34 @@ function withDependsOn<T extends { id: bigint; projectId: bigint; parentTaskId: 
   return {
     ...serializeTask(task),
     dependsOn: dependencies.map((d) => Number(d.dependsOnTaskId)),
+  };
+}
+
+async function attachTaskDependsOn(ids: number[]): Promise<Map<number, number[]>> {
+  if (ids.length === 0) return new Map();
+  const rows = await prisma.taskDependency.findMany({
+    where: { taskId: { in: ids.map(BigInt) } },
+    select: { taskId: true, dependsOnTaskId: true },
+  });
+  const map = new Map<number, number[]>();
+  for (const row of rows) {
+    const key = Number(row.taskId);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(Number(row.dependsOnTaskId));
+  }
+  return map;
+}
+
+async function enrichAffected(
+  affected: { projects: { id: number }[]; tasks: { id: number }[] },
+) {
+  const [projectDepsMap, taskDepsMap] = await Promise.all([
+    attachProjectDependsOn(affected.projects.map((p) => p.id)),
+    attachTaskDependsOn(affected.tasks.map((t) => t.id)),
+  ]);
+  return {
+    projects: affected.projects.map((p) => ({ ...p, dependsOn: projectDepsMap.get(p.id) ?? [] })),
+    tasks: affected.tasks.map((t) => ({ ...t, dependsOn: taskDepsMap.get(t.id) ?? [] })),
   };
 }
 
@@ -95,7 +123,15 @@ export async function createTask(data: CreateTaskInput) {
   });
 
   const serialized = serializeTask(task);
-  return { task: serialized, affected: collectAffected(tracker, undefined, serialized.id) };
+  const rawAffected = collectAffected(tracker, undefined, serialized.id);
+  const [taskDepsMap, affected] = await Promise.all([
+    attachTaskDependsOn([serialized.id]),
+    enrichAffected(rawAffected),
+  ]);
+  return {
+    task: { ...serialized, dependsOn: taskDepsMap.get(serialized.id) ?? [] },
+    affected,
+  };
 }
 
 export async function updateTask(id: bigint, data: UpdateTaskInput) {
@@ -165,7 +201,15 @@ export async function updateTask(id: bigint, data: UpdateTaskInput) {
   });
 
   const serialized = serializeTask(task);
-  return { task: serialized, affected: collectAffected(tracker, undefined, serialized.id) };
+  const rawAffected = collectAffected(tracker, undefined, serialized.id);
+  const [taskDepsMap, affected] = await Promise.all([
+    attachTaskDependsOn([serialized.id]),
+    enrichAffected(rawAffected),
+  ]);
+  return {
+    task: { ...serialized, dependsOn: taskDepsMap.get(serialized.id) ?? [] },
+    affected,
+  };
 }
 
 export async function deleteTask(id: bigint) {
@@ -199,5 +243,5 @@ export async function deleteTask(id: bigint) {
     }
   });
 
-  return { affected: collectAffected(tracker) };
+  return { affected: await enrichAffected(collectAffected(tracker)) };
 }
