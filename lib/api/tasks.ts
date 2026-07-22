@@ -1,4 +1,5 @@
 import type { ProjectStatus } from "@/lib/api/projects";
+import type { Affected } from "@/lib/api/affected";
 
 export type Task = {
   id: number;
@@ -61,6 +62,17 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return body.data as T;
 }
 
+async function handleMutationResponse<T>(
+  res: Response,
+): Promise<{ data: T; affected: Affected }> {
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(buildErrorMessage(body, res.status));
+  }
+  const body = await res.json();
+  return { data: body.data as T, affected: body.affected as Affected };
+}
+
 export function fetchTasks(filters: TaskListFilters = {}): Promise<Task[]> {
   const params = new URLSearchParams();
   if (filters.projectId) params.set("projectId", String(filters.projectId));
@@ -72,27 +84,34 @@ export function fetchTasks(filters: TaskListFilters = {}): Promise<Task[]> {
   );
 }
 
-export function createTask(input: TaskInput): Promise<Task> {
+export function createTask(
+  input: TaskInput,
+): Promise<{ data: Task; affected: Affected }> {
   return fetch("/api/tasks", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
-  }).then((res) => handleResponse<Task>(res));
+  }).then((res) => handleMutationResponse<Task>(res));
 }
 
 export function updateTask(
   id: number,
   input: Partial<TaskInput>,
-): Promise<Task> {
+): Promise<{ data: Task; affected: Affected }> {
   return fetch(`/api/tasks/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
-  }).then((res) => handleResponse<Task>(res));
+  }).then((res) => handleMutationResponse<Task>(res));
 }
 
-export function deleteTask(id: number): Promise<void> {
-  return fetch(`/api/tasks/${id}`, { method: "DELETE" }).then((res) =>
-    handleResponse<void>(res),
-  );
+export function deleteTask(id: number): Promise<{ affected: Affected }> {
+  return fetch(`/api/tasks/${id}`, { method: "DELETE" }).then(async (res) => {
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(buildErrorMessage(body, res.status));
+    }
+    const body = await res.json();
+    return { affected: body.affected as Affected };
+  });
 }

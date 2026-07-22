@@ -1,3 +1,5 @@
+import type { Affected } from "@/lib/api/affected";
+
 export type ProjectStatus = "draft" | "in_progress" | "done";
 
 export type Project = {
@@ -50,27 +52,40 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return body.data as T;
 }
 
+async function handleMutationResponse<T>(
+  res: Response,
+): Promise<{ data: T; affected: Affected }> {
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(buildErrorMessage(body, res.status));
+  }
+  const body = await res.json();
+  return { data: body.data as T, affected: body.affected as Affected };
+}
+
 export function fetchProjects(): Promise<Project[]> {
   return fetch("/api/projects").then((res) => handleResponse<Project[]>(res));
 }
 
-export function createProject(input: ProjectInput): Promise<Project> {
+export function createProject(
+  input: ProjectInput,
+): Promise<{ data: Project; affected: Affected }> {
   return fetch("/api/projects", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
-  }).then((res) => handleResponse<Project>(res));
+  }).then((res) => handleMutationResponse<Project>(res));
 }
 
 export function updateProject(
   id: number,
   input: Partial<ProjectInput>,
-): Promise<Project> {
+): Promise<{ data: Project; affected: Affected }> {
   return fetch(`/api/projects/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
-  }).then((res) => handleResponse<Project>(res));
+  }).then((res) => handleMutationResponse<Project>(res));
 }
 
 export function deleteProject(id: number): Promise<void> {
