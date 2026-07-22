@@ -6,6 +6,7 @@ import {
   projectListQuerySchema,
 } from "@/lib/validations/project";
 import { createProject, listProjects } from "@/lib/services/project.service";
+import { toErrorResponse } from "@/lib/errors";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -45,6 +46,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const project = await createProject(parsed.data);
-  return NextResponse.json({ data: project }, { status: 201 });
+  try {
+    const project = await createProject(parsed.data);
+    return NextResponse.json({ data: project }, { status: 201 });
+  } catch (err) {
+    const errorResponse = toErrorResponse(err);
+    if (errorResponse) return errorResponse;
+    throw err;
+  }
 }

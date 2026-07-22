@@ -7,6 +7,7 @@ import {
   getProjectById,
   updateProject,
 } from "@/lib/services/project.service";
+import { toErrorResponse } from "@/lib/errors";
 
 function parseId(idParam: string): bigint | null {
   if (!/^\d+$/.test(idParam)) return null;
@@ -62,6 +63,9 @@ export async function PATCH(
     const project = await updateProject(id, parsed.data);
     return NextResponse.json({ data: project });
   } catch (err) {
+    const errorResponse = toErrorResponse(err);
+    if (errorResponse) return errorResponse;
+
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2025"
@@ -86,6 +90,9 @@ export async function DELETE(
     await deleteProject(id);
     return new NextResponse(null, { status: 204 });
   } catch (err) {
+    const errorResponse = toErrorResponse(err);
+    if (errorResponse) return errorResponse;
+
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2025"
