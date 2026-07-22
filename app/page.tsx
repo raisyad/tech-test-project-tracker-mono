@@ -72,6 +72,11 @@ function getTaskDepth(task: Task, taskById: Map<number, Task>): number {
   return depth;
 }
 
+function countDescendantTasks(taskId: number, allTasks: Task[]): number {
+  const children = allTasks.filter((t) => t.parentTaskId === taskId);
+  return children.reduce((sum, child) => sum + 1 + countDescendantTasks(child.id, allTasks), 0);
+}
+
 type PanelMode = "project" | "task" | null;
 
 export default function Home() {
@@ -116,7 +121,7 @@ export default function Home() {
       name: project.name,
       startDate: toDateInputValue(project.startDate),
       endDate: toDateInputValue(project.endDate),
-      dependsOn: project.dependsOn,
+      dependsOn: project.dependsOn ?? [],
     });
     setErrorMessage(null);
     setPanelMode("project");
@@ -141,7 +146,7 @@ export default function Home() {
       name: task.name,
       status: task.status,
       weight: task.weight,
-      dependsOn: task.dependsOn,
+      dependsOn: task.dependsOn ?? [],
     });
     setErrorMessage(null);
     setPanelMode("task");
@@ -292,8 +297,13 @@ export default function Home() {
 
   function handleDeleteProject() {
     if (!editingProject) return;
+    const taskCount = allTasks?.filter((t) => t.projectId === editingProject.id).length ?? 0;
+    const cascadeNote =
+      taskCount > 0
+        ? ` Akan ikut menghapus ${taskCount} task di dalamnya.`
+        : "";
     const confirmed = window.confirm(
-      `Hapus project "${editingProject.name}"? Aksi ini tidak bisa dibatalkan.`,
+      `Hapus project "${editingProject.name}"?${cascadeNote} Aksi ini tidak bisa dibatalkan.`,
     );
     if (!confirmed) return;
     deleteProjectMutation.mutate(editingProject.id);
@@ -301,8 +311,13 @@ export default function Home() {
 
   function handleDeleteTask() {
     if (!editingTask) return;
+    const descendantCount = allTasks ? countDescendantTasks(editingTask.id, allTasks) : 0;
+    const cascadeNote =
+      descendantCount > 0
+        ? ` Akan ikut menghapus ${descendantCount} subtask di dalamnya.`
+        : "";
     const confirmed = window.confirm(
-      `Hapus task "${editingTask.name}"? Aksi ini tidak bisa dibatalkan.`,
+      `Hapus task "${editingTask.name}"?${cascadeNote} Aksi ini tidak bisa dibatalkan.`,
     );
     if (!confirmed) return;
     deleteTaskMutation.mutate(editingTask.id);
@@ -318,6 +333,8 @@ export default function Home() {
   const editingTaskHasChildren = editingTask
     ? (allTasks?.some((t) => t.parentTaskId === editingTask.id) ?? false)
     : false;
+  const blockingDependencies =
+    allTasks?.filter((t) => taskForm.dependsOn.includes(t.id) && t.status !== "done") ?? [];
 
   return (
     <div className="flex h-screen bg-zinc-50 font-sans dark:bg-black">
@@ -727,22 +744,38 @@ export default function Home() {
                             </p>
                           </>
                         ) : (
-                          <select
-                            value={taskForm.status}
-                            onChange={(e) =>
-                              setTaskForm({
-                                ...taskForm,
-                                status: e.target.value as ProjectStatus,
-                              })
-                            }
-                            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                          >
-                            {Object.entries(STATUS_LABEL).map(([value, label]) => (
-                              <option key={value} value={value}>
-                                {label}
-                              </option>
-                            ))}
-                          </select>
+                          <>
+                            <select
+                              value={taskForm.status}
+                              onChange={(e) =>
+                                setTaskForm({
+                                  ...taskForm,
+                                  status: e.target.value as ProjectStatus,
+                                })
+                              }
+                              className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                            >
+                              {Object.entries(STATUS_LABEL).map(([value, label]) => (
+                                <option
+                                  key={value}
+                                  value={value}
+                                  disabled={value === "done" && blockingDependencies.length > 0}
+                                  title={
+                                    value === "done" && blockingDependencies.length > 0
+                                      ? `Diblokir oleh: ${blockingDependencies.map((d) => d.name).join(", ")}`
+                                      : undefined
+                                  }
+                                >
+                                  {label}
+                                </option>
+                              ))}
+                            </select>
+                            {blockingDependencies.length > 0 && (
+                              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                                Tidak bisa Done, menunggu: {blockingDependencies.map((d) => d.name).join(", ")}
+                              </p>
+                            )}
+                          </>
                         )}
                       </div>
 
