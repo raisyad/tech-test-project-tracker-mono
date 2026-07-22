@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum Status {
+  draft
+  in_progress
+  done
+}
+
+model Project {
+  id                 BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  name               String   @db.VarChar(255)
+  status             Status   @default(draft)
+  completionProgress Decimal  @default(0) @db.Decimal(5, 2) @map("completion_progress")
+  startDate          DateTime @db.Date @map("start_date")
+  endDate            DateTime @db.Date @map("end_date")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  tasks Task[]
+
+  @@index([startDate, endDate], name: "idx_projects_schedule")
+  @@map("projects")
+}
+
+model Task {
+  id        BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  projectId BigInt   @map("project_id") @db.UnsignedBigInt
+  name      String   @db.VarChar(255)
+  status    Status   @default(draft)
+  weight    Int      @db.UnsignedInt
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId], name: "idx_tasks_project")
+  @@map("tasks")
+}
+
+model ScheduleLock {
+  id Int @id @db.UnsignedTinyInt
+
+  @@map("schedule_locks")
+}
