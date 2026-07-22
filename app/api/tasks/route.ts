@@ -35,8 +35,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const task = await createTask(parsed.data);
-    return NextResponse.json({ data: task }, { status: 201 });
+    const { task, affected } = await createTask(parsed.data);
+    return NextResponse.json({ data: task, affected }, { status: 201 });
   } catch (err) {
     const errorResponse = toErrorResponse(err);
     if (errorResponse) return errorResponse;

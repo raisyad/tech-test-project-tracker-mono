@@ -47,8 +47,8 @@ export async function PATCH(
   }
 
   try {
-    const task = await updateTask(id, parsed.data);
-    return NextResponse.json({ data: task });
+    const { task, affected } = await updateTask(id, parsed.data);
+    return NextResponse.json({ data: task, affected });
   } catch (err) {
     const errorResponse = toErrorResponse(err);
     if (errorResponse) return errorResponse;
@@ -74,8 +74,8 @@ export async function DELETE(
   }
 
   try {
-    await deleteTask(id);
-    return new NextResponse(null, { status: 204 });
+    const { affected } = await deleteTask(id);
+    return NextResponse.json({ affected });
   } catch (err) {
     const errorResponse = toErrorResponse(err);
     if (errorResponse) return errorResponse;

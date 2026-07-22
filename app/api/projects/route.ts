@@ -47,8 +47,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const project = await createProject(parsed.data);
-    return NextResponse.json({ data: project }, { status: 201 });
+    const { project, affected } = await createProject(parsed.data);
+    return NextResponse.json({ data: project, affected }, { status: 201 });
   } catch (err) {
     const errorResponse = toErrorResponse(err);
     if (errorResponse) return errorResponse;

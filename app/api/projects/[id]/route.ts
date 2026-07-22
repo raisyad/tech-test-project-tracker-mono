@@ -60,8 +60,8 @@ export async function PATCH(
   }
 
   try {
-    const project = await updateProject(id, parsed.data);
-    return NextResponse.json({ data: project });
+    const { project, affected } = await updateProject(id, parsed.data);
+    return NextResponse.json({ data: project, affected });
   } catch (err) {
     const errorResponse = toErrorResponse(err);
     if (errorResponse) return errorResponse;
