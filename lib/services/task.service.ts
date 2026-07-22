@@ -1,16 +1,26 @@
 import { prisma } from "@/lib/prisma";
 import { serializeTask } from "@/lib/serialize";
-import { recalculateProject } from "@/lib/services/project.service";
 import {
   assertDependenciesDone,
   cascadeRevalidateDependents,
   syncTaskDependencies,
 } from "@/lib/services/task-dependency.service";
-import { DependentEntityExistsError } from "@/lib/errors";
+import {
+  applyTreeVisibility,
+  assertSameProjectAsParent,
+  getDescendantIds,
+  recalculateTaskChain,
+} from "@/lib/services/task-hierarchy.service";
+import { recalculateProject } from "@/lib/services/project.service";
+import {
+  DependentEntityExistsError,
+  InvalidParentTaskError,
+  ReadonlyFieldError,
+} from "@/lib/errors";
 import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validations/task";
 import type { Prisma } from "@/app/generated/prisma/client";
 
-function withDependsOn<T extends { id: bigint; projectId: bigint }>(
+function withDependsOn<T extends { id: bigint; projectId: bigint; parentTaskId: bigint | null }>(
   task: T,
   dependencies: { dependsOnTaskId: bigint }[],
 ) {
@@ -27,15 +37,18 @@ export async function listTasks(filters: {
 }) {
   const where: Prisma.TaskWhereInput = {};
   if (filters.projectId) where.projectId = BigInt(filters.projectId);
-  if (filters.status) where.status = filters.status;
-  if (filters.search) where.name = { contains: filters.search };
 
   const tasks = await prisma.task.findMany({
     where,
     orderBy: { createdAt: "desc" },
     include: { dependsOn: { select: { dependsOnTaskId: true } } },
   });
-  return tasks.map((t) => withDependsOn(t, t.dependsOn));
+  const serialized = tasks.map((t) => withDependsOn(t, t.dependsOn));
+
+  return applyTreeVisibility(serialized, {
+    status: filters.status,
+    search: filters.search,
+  });
 }
 
 export async function getTaskById(id: bigint) {
@@ -49,9 +62,17 @@ export async function getTaskById(id: bigint) {
 
 export async function createTask(data: CreateTaskInput) {
   const task = await prisma.$transaction(async (tx) => {
+    const projectId = BigInt(data.projectId);
+    const parentTaskId = data.parentTaskId != null ? BigInt(data.parentTaskId) : null;
+
+    if (parentTaskId !== null) {
+      await assertSameProjectAsParent(tx, projectId, parentTaskId);
+    }
+
     const created = await tx.task.create({
       data: {
-        projectId: BigInt(data.projectId),
+        projectId,
+        parentTaskId,
         name: data.name,
         status: data.status,
         weight: data.weight,
@@ -66,7 +87,7 @@ export async function createTask(data: CreateTaskInput) {
       await assertDependenciesDone(tx, created.id);
     }
 
-    await recalculateProject(created.projectId, tx);
+    await recalculateTaskChain(tx, created.id);
     return created;
   });
   return serializeTask(task);
@@ -75,6 +96,11 @@ export async function createTask(data: CreateTaskInput) {
 export async function updateTask(id: bigint, data: UpdateTaskInput) {
   const task = await prisma.$transaction(async (tx) => {
     const existing = await tx.task.findUniqueOrThrow({ where: { id } });
+
+    const childrenCount = await tx.task.count({ where: { parentTaskId: id } });
+    if (childrenCount > 0 && data.status !== undefined) {
+      throw new ReadonlyFieldError("status");
+    }
 
     if (data.dependsOn !== undefined) {
       await syncTaskDependencies(tx, id, data.dependsOn);
@@ -85,17 +111,41 @@ export async function updateTask(id: bigint, data: UpdateTaskInput) {
       await assertDependenciesDone(tx, id);
     }
 
+    let nextParentTaskId = existing.parentTaskId;
+    if (data.parentTaskId !== undefined) {
+      nextParentTaskId = data.parentTaskId === null ? null : BigInt(data.parentTaskId);
+
+      if (nextParentTaskId !== null) {
+        if (nextParentTaskId === id) {
+          throw new InvalidParentTaskError("Task tidak bisa menjadi parent dari dirinya sendiri");
+        }
+        const descendantIds = await getDescendantIds(tx, id);
+        if (descendantIds.some((d) => d === nextParentTaskId)) {
+          throw new InvalidParentTaskError(
+            "Task tidak bisa dipindah ke bawah descendant-nya sendiri",
+          );
+        }
+        const nextProjectId =
+          data.projectId !== undefined ? BigInt(data.projectId) : existing.projectId;
+        await assertSameProjectAsParent(tx, nextProjectId, nextParentTaskId);
+      }
+    }
+
     const updated = await tx.task.update({
       where: { id },
       data: {
         ...(data.projectId !== undefined && { projectId: BigInt(data.projectId) }),
+        ...(data.parentTaskId !== undefined && { parentTaskId: nextParentTaskId }),
         ...(data.name !== undefined && { name: data.name }),
         ...(data.status !== undefined && { status: data.status }),
         ...(data.weight !== undefined && { weight: data.weight }),
       },
     });
 
-    await recalculateProject(updated.projectId, tx);
+    await recalculateTaskChain(tx, updated.id);
+    if (existing.parentTaskId !== null && existing.parentTaskId !== updated.parentTaskId) {
+      await recalculateTaskChain(tx, existing.parentTaskId);
+    }
     if (existing.projectId !== updated.projectId) {
       await recalculateProject(existing.projectId, tx);
     }
@@ -111,8 +161,15 @@ export async function updateTask(id: bigint, data: UpdateTaskInput) {
 
 export async function deleteTask(id: bigint) {
   await prisma.$transaction(async (tx) => {
+    const existing = await tx.task.findUniqueOrThrow({ where: { id } });
+    const descendantIds = await getDescendantIds(tx, id);
+    const subtreeIds = [id, ...descendantIds];
+
     const dependents = await tx.taskDependency.findMany({
-      where: { dependsOnTaskId: id },
+      where: {
+        dependsOnTaskId: { in: subtreeIds },
+        taskId: { notIn: subtreeIds },
+      },
       include: { task: { select: { id: true, name: true } } },
     });
 
@@ -122,8 +179,12 @@ export async function deleteTask(id: bigint) {
       );
     }
 
-    const existing = await tx.task.findUniqueOrThrow({ where: { id } });
     await tx.task.delete({ where: { id } });
-    await recalculateProject(existing.projectId, tx);
+
+    if (existing.parentTaskId !== null) {
+      await recalculateTaskChain(tx, existing.parentTaskId);
+    } else {
+      await recalculateProject(existing.projectId, tx);
+    }
   });
 }

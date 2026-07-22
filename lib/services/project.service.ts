@@ -126,7 +126,7 @@ export async function deleteProject(id: bigint) {
   });
 }
 
-function deriveStatus(statuses: Status[]): Status {
+export function deriveStatus(statuses: Status[]): Status {
   if (statuses.length === 0) return "draft";
   if (statuses.every((s) => s === "draft")) return "draft";
   if (statuses.every((s) => s === "done")) return "done";
@@ -149,15 +149,21 @@ export async function recalculateProject(
 
   const tasks = await client.task.findMany({
     where: { projectId: id },
-    select: { status: true, weight: true },
+    select: { id: true, parentTaskId: true, status: true, weight: true },
   });
 
-  const totalWeight = tasks.reduce((sum, t) => sum + t.weight, 0);
-  const doneWeight = tasks
+  const parentIds = new Set(
+    tasks.filter((t) => t.parentTaskId !== null).map((t) => t.parentTaskId!.toString()),
+  );
+  const leafTasks = tasks.filter((t) => !parentIds.has(t.id.toString()));
+  const topLevelTasks = tasks.filter((t) => t.parentTaskId === null);
+
+  const totalWeight = leafTasks.reduce((sum, t) => sum + t.weight, 0);
+  const doneWeight = leafTasks
     .filter((t) => t.status === "done")
     .reduce((sum, t) => sum + t.weight, 0);
   const completionProgress = totalWeight === 0 ? 0 : (doneWeight / totalWeight) * 100;
-  const baseStatus = deriveStatus(tasks.map((t) => t.status));
+  const baseStatus = deriveStatus(topLevelTasks.map((t) => t.status));
 
   const dependencies = await client.projectDependency.findMany({
     where: { projectId: id },
