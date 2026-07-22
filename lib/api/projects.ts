@@ -13,7 +13,6 @@ export type Project = {
 
 export type ProjectInput = {
   name: string;
-  status: ProjectStatus;
   startDate: string;
   endDate: string;
 };

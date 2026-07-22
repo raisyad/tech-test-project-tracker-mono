@@ -31,14 +31,12 @@ function toDateInputValue(isoString: string) {
 
 type ProjectFormState = {
   name: string;
-  status: ProjectStatus;
   startDate: string;
   endDate: string;
 };
 
 const emptyProjectForm: ProjectFormState = {
   name: "",
-  status: "draft",
   startDate: "",
   endDate: "",
 };
@@ -88,7 +86,6 @@ export default function Home() {
     setEditingProject(project);
     setProjectForm({
       name: project.name,
-      status: project.status,
       startDate: toDateInputValue(project.startDate),
       endDate: toDateInputValue(project.endDate),
     });
@@ -160,6 +157,7 @@ export default function Home() {
     mutationFn: createTask,
     onSuccess: () => {
       invalidateTasks();
+      invalidateProjects();
       closePanel();
     },
     onError: (err: Error) => setErrorMessage(err.message),
@@ -175,6 +173,7 @@ export default function Home() {
     }) => updateTask(id, input),
     onSuccess: () => {
       invalidateTasks();
+      invalidateProjects();
       closePanel();
     },
     onError: (err: Error) => setErrorMessage(err.message),
@@ -184,6 +183,7 @@ export default function Home() {
     mutationFn: deleteTask,
     onSuccess: () => {
       invalidateTasks();
+      invalidateProjects();
       closePanel();
     },
     onError: (err: Error) => setErrorMessage(err.message),
@@ -401,22 +401,14 @@ export default function Home() {
                         <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
                           Status
                         </label>
-                        <select
-                          value={projectForm.status}
-                          onChange={(e) =>
-                            setProjectForm({
-                              ...projectForm,
-                              status: e.target.value as ProjectStatus,
-                            })
-                          }
-                          className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-                        >
-                          {Object.entries(STATUS_LABEL).map(([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="mt-1">
+                          <span className="inline-block rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                            {STATUS_LABEL[editingProject?.status ?? "draft"]}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-400">
+                          Dihitung otomatis dari status task di project ini.
+                        </p>
                       </div>
 
                       <div className="grid grid-cols-2 gap-3">
