@@ -155,11 +155,38 @@ export default function Home() {
     queryClient.invalidateQueries({ queryKey: ["projects"] });
   const invalidateTasks = () =>
     queryClient.invalidateQueries({ queryKey: ["tasks"] });
+  const invalidateFilteredTasks = () =>
+    queryClient.invalidateQueries({
+      queryKey: ["tasks", statusFilter, searchTerm],
+      exact: true,
+    });
+
+  function patchProjectsCache(entries: Project[]) {
+    if (entries.length === 0) return;
+    queryClient.setQueryData<Project[]>(["projects"], (old) => {
+      if (!old) return old;
+      const byId = new Map(old.map((p) => [p.id, p]));
+      for (const entry of entries) byId.set(entry.id, entry);
+      return [...byId.values()];
+    });
+  }
+
+  function patchTasksAllCache(entries: Task[]) {
+    if (entries.length === 0) return;
+    queryClient.setQueryData<Task[]>(["tasks", "all"], (old) => {
+      if (!old) return old;
+      const byId = new Map(old.map((t) => [t.id, t]));
+      for (const entry of entries) byId.set(entry.id, entry);
+      return [...byId.values()];
+    });
+  }
 
   const createProjectMutation = useMutation({
     mutationFn: createProject,
-    onSuccess: () => {
-      invalidateProjects();
+    onSuccess: ({ data, affected }) => {
+      patchProjectsCache([data, ...affected.projects]);
+      patchTasksAllCache(affected.tasks);
+      invalidateFilteredTasks();
       closePanel();
     },
     onError: (err: Error) => setErrorMessage(err.message),
@@ -168,8 +195,10 @@ export default function Home() {
   const updateProjectMutation = useMutation({
     mutationFn: ({ id, input }: { id: number; input: ProjectFormState }) =>
       updateProject(id, input),
-    onSuccess: () => {
-      invalidateProjects();
+    onSuccess: ({ data, affected }) => {
+      patchProjectsCache([data, ...affected.projects]);
+      patchTasksAllCache(affected.tasks);
+      invalidateFilteredTasks();
       closePanel();
     },
     onError: (err: Error) => setErrorMessage(err.message),
@@ -187,9 +216,10 @@ export default function Home() {
 
   const createTaskMutation = useMutation({
     mutationFn: createTask,
-    onSuccess: () => {
-      invalidateTasks();
-      invalidateProjects();
+    onSuccess: ({ data, affected }) => {
+      patchTasksAllCache([data, ...affected.tasks]);
+      patchProjectsCache(affected.projects);
+      invalidateFilteredTasks();
       closePanel();
     },
     onError: (err: Error) => setErrorMessage(err.message),
@@ -210,9 +240,10 @@ export default function Home() {
         dependsOn: number[];
       };
     }) => updateTask(id, input),
-    onSuccess: () => {
-      invalidateTasks();
-      invalidateProjects();
+    onSuccess: ({ data, affected }) => {
+      patchTasksAllCache([data, ...affected.tasks]);
+      patchProjectsCache(affected.projects);
+      invalidateFilteredTasks();
       closePanel();
     },
     onError: (err: Error) => setErrorMessage(err.message),
