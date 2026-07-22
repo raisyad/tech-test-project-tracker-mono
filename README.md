@@ -1,36 +1,47 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Mini Project Tracker
 
-## Getting Started
+Penjelasan: Project Tracker ini dibuat untuk memenuhi technical assesment daripada candidate Fullstack Developer yang dimana project ini berkaitan dengan manajement Project & Task.
 
-First, run the development server:
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Stack
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- Next.js (App Router) + TypeScript 
+-  Tailwind CSS · Headless UI
+- TanStack Query · Zod · Prisma 
+- MySQL
+- npm runtime for default (di awal saya akan menggunakan bun runtime, akan tetapi saya belum pernah menggunakan dan menggabungkan antara prisma dengan bun runtime maka dari itu saya menggunakan runtime default yaitu npm)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Run on Local Development
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Perlu Node.js dan Docker terpasang.
 
-## Learn More
+1. Copy `.env.example` jadi `.env`, isi dengan kredensial yang disesuaikan
 
-To learn more about Next.js, take a look at the following resources:
+2. Run MySQL lewat Docker:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+   ```bash
+   docker compose up -d
+   ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+3. Install dependency:
 
-## Deploy on Vercel
+   ```bash
+   npm install
+   ```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+4. Jalankan migrasi database:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+   ```bash
+   npx prisma migrate dev
+   npx prisma generate
+   ```
+
+5. Jalankan dev server:
+
+   ```bash
+   npm run dev
+   ```
+
+Buka [http://localhost:3000](http://localhost:3000).
+
+> Catatan: default port MySQL di `docker-compose.yml` adalah `3307` di sisi host (bukan `3306`), supaya tidak bentrok, jika sudah punya MySQL lain jalan di komputer. Kalo tidak ada bentrok, boleh diganti ke `3306` lewat env var `MYSQL_PORT`.
