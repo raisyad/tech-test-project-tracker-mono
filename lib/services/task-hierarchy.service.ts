@@ -1,4 +1,6 @@
 import { deriveStatus, recalculateProject } from "@/lib/services/project.service";
+import { serializeTask } from "@/lib/serialize";
+import { type ChangeTracker, trackTask } from "@/lib/change-tracker";
 import { InvalidParentTaskError } from "@/lib/errors";
 import type { Prisma, Status } from "@/app/generated/prisma/client";
 
@@ -17,7 +19,11 @@ async function fetchTaskNode(tx: TxClient, id: bigint): Promise<TaskNode> {
   });
 }
 
-export async function recalculateTaskChain(tx: TxClient, taskId: bigint) {
+export async function recalculateTaskChain(
+  tx: TxClient,
+  taskId: bigint,
+  tracker?: ChangeTracker,
+) {
   const startTask = await tx.task.findUniqueOrThrow({
     where: { id: taskId },
     select: { projectId: true },
@@ -35,17 +41,18 @@ export async function recalculateTaskChain(tx: TxClient, taskId: bigint) {
     if (children.length > 0) {
       const computedStatus = deriveStatus(children.map((c) => c.status));
       if (computedStatus !== current.status) {
-        await tx.task.update({
+        const updated = await tx.task.update({
           where: { id: current.id },
           data: { status: computedStatus },
         });
+        trackTask(tracker, serializeTask(updated));
       }
     }
 
     currentId = current.parentTaskId;
   }
 
-  await recalculateProject(startTask.projectId, tx);
+  await recalculateProject(startTask.projectId, tx, new Set(), tracker);
 }
 
 export async function getDescendantIds(

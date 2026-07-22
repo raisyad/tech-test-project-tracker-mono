@@ -2,6 +2,12 @@ import { prisma } from "@/lib/prisma";
 import { serializeProject, serializeTask } from "@/lib/serialize";
 import { syncProjectDependencies } from "@/lib/services/project-dependency.service";
 import { lockScheduleAndCheckOverlap } from "@/lib/services/schedule.service";
+import {
+  type ChangeTracker,
+  collectAffected,
+  createChangeTracker,
+  trackProject,
+} from "@/lib/change-tracker";
 import { DependentEntityExistsError } from "@/lib/errors";
 import type {
   CreateProjectInput,
@@ -51,6 +57,8 @@ export async function getProjectById(id: bigint) {
 }
 
 export async function createProject(data: CreateProjectInput) {
+  const tracker: ChangeTracker = createChangeTracker();
+
   const project = await prisma.$transaction(async (tx) => {
     await lockScheduleAndCheckOverlap(tx, {
       startDate: data.startDate,
@@ -67,15 +75,19 @@ export async function createProject(data: CreateProjectInput) {
 
     if (data.dependsOn && data.dependsOn.length > 0) {
       await syncProjectDependencies(tx, created.id, data.dependsOn);
-      await recalculateProject(created.id, tx);
+      await recalculateProject(created.id, tx, new Set(), tracker);
     }
 
     return created;
   });
-  return serializeProject(project);
+
+  const serialized = serializeProject(project);
+  return { project: serialized, affected: collectAffected(tracker, serialized.id) };
 }
 
 export async function updateProject(id: bigint, data: UpdateProjectInput) {
+  const tracker: ChangeTracker = createChangeTracker();
+
   const project = await prisma.$transaction(async (tx) => {
     const { dependsOn, ...rest } = data;
 
@@ -101,12 +113,14 @@ export async function updateProject(id: bigint, data: UpdateProjectInput) {
     });
 
     if (dependsOn !== undefined) {
-      await recalculateProject(id, tx);
+      await recalculateProject(id, tx, new Set(), tracker);
     }
 
     return updated;
   });
-  return serializeProject(project);
+
+  const serialized = serializeProject(project);
+  return { project: serialized, affected: collectAffected(tracker, serialized.id) };
 }
 
 export async function deleteProject(id: bigint) {
@@ -155,6 +169,7 @@ export async function recalculateProject(
   id: bigint,
   client: Prisma.TransactionClient | typeof prisma = prisma,
   visited: Set<string> = new Set(),
+  tracker?: ChangeTracker,
 ) {
   const key = id.toString();
   if (visited.has(key)) return;
@@ -192,10 +207,11 @@ export async function recalculateProject(
   );
   const finalStatus = allDependenciesDone ? baseStatus : "draft";
 
-  await client.project.update({
+  const updated = await client.project.update({
     where: { id },
     data: { status: finalStatus, completionProgress },
   });
+  trackProject(tracker, serializeProject(updated));
 
   if (finalStatus !== before.status) {
     const dependents = await client.projectDependency.findMany({
@@ -203,7 +219,7 @@ export async function recalculateProject(
       select: { projectId: true },
     });
     for (const dependent of dependents) {
-      await recalculateProject(dependent.projectId, client, visited);
+      await recalculateProject(dependent.projectId, client, visited, tracker);
     }
   }
 }

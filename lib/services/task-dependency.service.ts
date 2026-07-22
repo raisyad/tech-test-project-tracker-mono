@@ -1,4 +1,6 @@
-import { recalculateProject } from "@/lib/services/project.service";
+import { recalculateTaskChain } from "@/lib/services/task-hierarchy.service";
+import { serializeTask } from "@/lib/serialize";
+import { type ChangeTracker, trackTask } from "@/lib/change-tracker";
 import { CircularDependencyError, DependencyNotDoneError } from "@/lib/errors";
 import type { Prisma } from "@/app/generated/prisma/client";
 
@@ -85,6 +87,7 @@ export async function cascadeRevalidateDependents(
   tx: TxClient,
   taskId: bigint,
   visited: Set<string> = new Set(),
+  tracker?: ChangeTracker,
 ) {
   const key = taskId.toString();
   if (visited.has(key)) return;
@@ -101,11 +104,12 @@ export async function cascadeRevalidateDependents(
   for (const dependent of dependents) {
     if (dependent.task.status !== "done") continue;
 
-    await tx.task.update({
+    const updated = await tx.task.update({
       where: { id: dependent.task.id },
       data: { status: "in_progress" },
     });
-    await recalculateProject(dependent.task.projectId, tx);
-    await cascadeRevalidateDependents(tx, dependent.task.id, visited);
+    trackTask(tracker, serializeTask(updated));
+    await recalculateTaskChain(tx, dependent.task.id, tracker);
+    await cascadeRevalidateDependents(tx, dependent.task.id, visited, tracker);
   }
 }

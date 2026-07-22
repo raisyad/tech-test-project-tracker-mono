@@ -12,6 +12,7 @@ import {
   recalculateTaskChain,
 } from "@/lib/services/task-hierarchy.service";
 import { recalculateProject } from "@/lib/services/project.service";
+import { createChangeTracker, collectAffected } from "@/lib/change-tracker";
 import {
   DependentEntityExistsError,
   InvalidParentTaskError,
@@ -61,6 +62,8 @@ export async function getTaskById(id: bigint) {
 }
 
 export async function createTask(data: CreateTaskInput) {
+  const tracker = createChangeTracker();
+
   const task = await prisma.$transaction(async (tx) => {
     const projectId = BigInt(data.projectId);
     const parentTaskId = data.parentTaskId != null ? BigInt(data.parentTaskId) : null;
@@ -87,13 +90,17 @@ export async function createTask(data: CreateTaskInput) {
       await assertDependenciesDone(tx, created.id);
     }
 
-    await recalculateTaskChain(tx, created.id);
+    await recalculateTaskChain(tx, created.id, tracker);
     return created;
   });
-  return serializeTask(task);
+
+  const serialized = serializeTask(task);
+  return { task: serialized, affected: collectAffected(tracker, undefined, serialized.id) };
 }
 
 export async function updateTask(id: bigint, data: UpdateTaskInput) {
+  const tracker = createChangeTracker();
+
   const task = await prisma.$transaction(async (tx) => {
     const existing = await tx.task.findUniqueOrThrow({ where: { id } });
 
@@ -142,24 +149,28 @@ export async function updateTask(id: bigint, data: UpdateTaskInput) {
       },
     });
 
-    await recalculateTaskChain(tx, updated.id);
+    await recalculateTaskChain(tx, updated.id, tracker);
     if (existing.parentTaskId !== null && existing.parentTaskId !== updated.parentTaskId) {
-      await recalculateTaskChain(tx, existing.parentTaskId);
+      await recalculateTaskChain(tx, existing.parentTaskId, tracker);
     }
     if (existing.projectId !== updated.projectId) {
-      await recalculateProject(existing.projectId, tx);
+      await recalculateProject(existing.projectId, tx, new Set(), tracker);
     }
 
     if (data.status !== undefined && data.status !== existing.status) {
-      await cascadeRevalidateDependents(tx, id);
+      await cascadeRevalidateDependents(tx, id, new Set(), tracker);
     }
 
     return updated;
   });
-  return serializeTask(task);
+
+  const serialized = serializeTask(task);
+  return { task: serialized, affected: collectAffected(tracker, undefined, serialized.id) };
 }
 
 export async function deleteTask(id: bigint) {
+  const tracker = createChangeTracker();
+
   await prisma.$transaction(async (tx) => {
     const existing = await tx.task.findUniqueOrThrow({ where: { id } });
     const descendantIds = await getDescendantIds(tx, id);
@@ -182,9 +193,11 @@ export async function deleteTask(id: bigint) {
     await tx.task.delete({ where: { id } });
 
     if (existing.parentTaskId !== null) {
-      await recalculateTaskChain(tx, existing.parentTaskId);
+      await recalculateTaskChain(tx, existing.parentTaskId, tracker);
     } else {
-      await recalculateProject(existing.projectId, tx);
+      await recalculateProject(existing.projectId, tx, new Set(), tracker);
     }
   });
+
+  return { affected: collectAffected(tracker) };
 }
