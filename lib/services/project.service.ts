@@ -15,14 +15,26 @@ import type {
 } from "@/lib/validations/project";
 import type { Prisma, Status } from "@/app/generated/prisma/client";
 
+type SerializedProject = {
+  id: number;
+  name: string;
+  status: Status;
+  completionProgress: number;
+  startDate: Date;
+  endDate: Date;
+  createdAt: Date;
+  updatedAt: Date;
+  dependsOn: number[];
+};
+
 function withDependsOn<T extends { id: bigint; completionProgress: unknown }>(
   project: T,
   dependencies: { dependsOnProjectId: bigint }[],
-) {
+): SerializedProject {
   return {
     ...serializeProject(project),
     dependsOn: dependencies.map((d) => Number(d.dependsOnProjectId)),
-  };
+  } as unknown as SerializedProject;
 }
 
 export async function attachProjectDependsOn(ids: number[]): Promise<Map<number, number[]>> {
@@ -75,7 +87,9 @@ export async function getProjectById(id: bigint) {
   };
 }
 
-export async function createProject(data: CreateProjectInput) {
+export async function createProject(
+  data: CreateProjectInput,
+): Promise<{ project: SerializedProject; affected: { projects: SerializedProject[]; tasks: unknown[] } }> {
   const tracker: ChangeTracker = createChangeTracker();
 
   const project = await prisma.$transaction(async (tx) => {
@@ -112,13 +126,18 @@ export async function createProject(data: CreateProjectInput) {
   return {
     project: { ...serialized, dependsOn: depsMap.get(serialized.id) ?? [] },
     affected: {
-      projects: affectedProjects.map((p) => ({ ...p, dependsOn: depsMap.get(p.id) ?? [] })),
+      projects: affectedProjects.map(
+        (p) => ({ ...p, dependsOn: depsMap.get(p.id) ?? [] }) as unknown as SerializedProject,
+      ),
       tasks: affectedTasks,
     },
   };
 }
 
-export async function updateProject(id: bigint, data: UpdateProjectInput) {
+export async function updateProject(
+  id: bigint,
+  data: UpdateProjectInput,
+): Promise<{ project: SerializedProject; affected: { projects: SerializedProject[]; tasks: unknown[] } }> {
   const tracker: ChangeTracker = createChangeTracker();
 
   const project = await prisma.$transaction(async (tx) => {
@@ -164,7 +183,9 @@ export async function updateProject(id: bigint, data: UpdateProjectInput) {
   return {
     project: { ...serialized, dependsOn: depsMap.get(serialized.id) ?? [] },
     affected: {
-      projects: affectedProjects.map((p) => ({ ...p, dependsOn: depsMap.get(p.id) ?? [] })),
+      projects: affectedProjects.map(
+        (p) => ({ ...p, dependsOn: depsMap.get(p.id) ?? [] }) as unknown as SerializedProject,
+      ),
       tasks: affectedTasks,
     },
   };

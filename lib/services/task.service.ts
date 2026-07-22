@@ -19,16 +19,42 @@ import {
   ReadonlyFieldError,
 } from "@/lib/errors";
 import type { CreateTaskInput, UpdateTaskInput } from "@/lib/validations/task";
-import type { Prisma } from "@/app/generated/prisma/client";
+import type { Prisma, Status } from "@/app/generated/prisma/client";
+
+type SerializedTask = {
+  id: number;
+  projectId: number;
+  parentTaskId: number | null;
+  name: string;
+  status: Status;
+  weight: number;
+  createdAt: Date;
+  updatedAt: Date;
+  dependsOn: number[];
+};
+
+type SerializedProject = {
+  id: number;
+  name: string;
+  status: Status;
+  completionProgress: number;
+  startDate: Date;
+  endDate: Date;
+  createdAt: Date;
+  updatedAt: Date;
+  dependsOn: number[];
+};
+
+type AffectedResult = { projects: SerializedProject[]; tasks: SerializedTask[] };
 
 function withDependsOn<T extends { id: bigint; projectId: bigint; parentTaskId: bigint | null }>(
   task: T,
   dependencies: { dependsOnTaskId: bigint }[],
-) {
+): SerializedTask {
   return {
     ...serializeTask(task),
     dependsOn: dependencies.map((d) => Number(d.dependsOnTaskId)),
-  };
+  } as unknown as SerializedTask;
 }
 
 async function attachTaskDependsOn(ids: number[]): Promise<Map<number, number[]>> {
@@ -46,16 +72,23 @@ async function attachTaskDependsOn(ids: number[]): Promise<Map<number, number[]>
   return map;
 }
 
-async function enrichAffected(
-  affected: { projects: { id: number }[]; tasks: { id: number }[] },
-) {
+async function enrichAffected(affected: {
+  projects: { id: number }[];
+  tasks: { id: number }[];
+}): Promise<AffectedResult> {
   const [projectDepsMap, taskDepsMap] = await Promise.all([
     attachProjectDependsOn(affected.projects.map((p) => p.id)),
     attachTaskDependsOn(affected.tasks.map((t) => t.id)),
   ]);
   return {
-    projects: affected.projects.map((p) => ({ ...p, dependsOn: projectDepsMap.get(p.id) ?? [] })),
-    tasks: affected.tasks.map((t) => ({ ...t, dependsOn: taskDepsMap.get(t.id) ?? [] })),
+    projects: affected.projects.map((p) => ({
+      ...p,
+      dependsOn: projectDepsMap.get(p.id) ?? [],
+    })) as SerializedProject[],
+    tasks: affected.tasks.map((t) => ({
+      ...t,
+      dependsOn: taskDepsMap.get(t.id) ?? [],
+    })) as SerializedTask[],
   };
 }
 
@@ -89,7 +122,9 @@ export async function getTaskById(id: bigint) {
   return withDependsOn(task, task.dependsOn);
 }
 
-export async function createTask(data: CreateTaskInput) {
+export async function createTask(
+  data: CreateTaskInput,
+): Promise<{ task: SerializedTask; affected: AffectedResult }> {
   const tracker = createChangeTracker();
 
   const task = await prisma.$transaction(async (tx) => {
@@ -134,7 +169,10 @@ export async function createTask(data: CreateTaskInput) {
   };
 }
 
-export async function updateTask(id: bigint, data: UpdateTaskInput) {
+export async function updateTask(
+  id: bigint,
+  data: UpdateTaskInput,
+): Promise<{ task: SerializedTask; affected: AffectedResult }> {
   const tracker = createChangeTracker();
 
   const task = await prisma.$transaction(async (tx) => {
@@ -212,7 +250,7 @@ export async function updateTask(id: bigint, data: UpdateTaskInput) {
   };
 }
 
-export async function deleteTask(id: bigint) {
+export async function deleteTask(id: bigint): Promise<{ affected: AffectedResult }> {
   const tracker = createChangeTracker();
 
   await prisma.$transaction(async (tx) => {
