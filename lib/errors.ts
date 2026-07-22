@@ -42,6 +42,20 @@ export class InvalidParentTaskError extends Error {
   }
 }
 
+export class ScheduleOverlapError extends Error {
+  conflictingProject: { id: number; name: string; startDate: string; endDate: string };
+
+  constructor(conflictingProject: {
+    id: number;
+    name: string;
+    startDate: string;
+    endDate: string;
+  }) {
+    super("Jadwal project bentrok dengan project lain");
+    this.conflictingProject = conflictingProject;
+  }
+}
+
 export function toErrorResponse(err: unknown): NextResponse | null {
   if (err instanceof CircularDependencyError) {
     return NextResponse.json(
@@ -71,6 +85,12 @@ export function toErrorResponse(err: unknown): NextResponse | null {
     return NextResponse.json(
       { error: "INVALID_PARENT_TASK", message: err.message },
       { status: 422 },
+    );
+  }
+  if (err instanceof ScheduleOverlapError) {
+    return NextResponse.json(
+      { error: "SCHEDULE_OVERLAP", conflictingProject: err.conflictingProject },
+      { status: 409 },
     );
   }
   return null;
