@@ -3,6 +3,7 @@ import { projectStatusEnum } from "@/lib/validations/project";
 
 export const createTaskSchema = z.object({
   projectId: z.coerce.number().int().positive(),
+  parentTaskId: z.coerce.number().int().positive().nullable().optional(),
   name: z.string().trim().min(1, "Nama wajib diisi").max(255),
   status: projectStatusEnum.default("draft"),
   weight: z.coerce.number().int().positive("weight harus lebih dari 0"),
@@ -11,6 +12,7 @@ export const createTaskSchema = z.object({
 
 export const updateTaskSchema = z.object({
   projectId: z.coerce.number().int().positive().optional(),
+  parentTaskId: z.coerce.number().int().positive().nullable().optional(),
   name: z.string().trim().min(1, "Nama wajib diisi").max(255).optional(),
   status: projectStatusEnum.optional(),
   weight: z.coerce.number().int().positive("weight harus lebih dari 0").optional(),
