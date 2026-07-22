@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Prisma } from "@/app/generated/prisma/client";
 import { updateTaskSchema } from "@/lib/validations/task";
 import { deleteTask, getTaskById, updateTask } from "@/lib/services/task.service";
+import { toErrorResponse } from "@/lib/errors";
 
 function parseId(idParam: string): bigint | null {
   if (!/^\d+$/.test(idParam)) return null;
@@ -49,6 +50,9 @@ export async function PATCH(
     const task = await updateTask(id, parsed.data);
     return NextResponse.json({ data: task });
   } catch (err) {
+    const errorResponse = toErrorResponse(err);
+    if (errorResponse) return errorResponse;
+
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2025"
@@ -73,6 +77,9 @@ export async function DELETE(
     await deleteTask(id);
     return new NextResponse(null, { status: 204 });
   } catch (err) {
+    const errorResponse = toErrorResponse(err);
+    if (errorResponse) return errorResponse;
+
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2025"
