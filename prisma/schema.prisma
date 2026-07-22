@@ -25,8 +25,22 @@ model Project {
 
   tasks Task[]
 
+  dependsOn    ProjectDependency[] @relation("ProjectDependent")
+  dependedOnBy ProjectDependency[] @relation("ProjectDependency")
+
   @@index([startDate, endDate], name: "idx_projects_schedule")
   @@map("projects")
+}
+
+model ProjectDependency {
+  projectId          BigInt @map("project_id") @db.UnsignedBigInt
+  dependsOnProjectId BigInt @map("depends_on_project_id") @db.UnsignedBigInt
+
+  project          Project @relation("ProjectDependent", fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  dependsOnProject Project @relation("ProjectDependency", fields: [dependsOnProjectId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([projectId, dependsOnProjectId])
+  @@map("project_dependencies")
 }
 
 model Task {
