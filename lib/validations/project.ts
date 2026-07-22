@@ -4,10 +4,15 @@ const dateField = z.coerce.date({ error: "Format tanggal tidak valid" });
 
 export const projectStatusEnum = z.enum(["draft", "in_progress", "done"]);
 
+export const READONLY_PROJECT_FIELDS = ["status", "completionProgress", "completion_progress"];
+
+export function findReadonlyProjectField(body: Record<string, unknown>): string | null {
+  return READONLY_PROJECT_FIELDS.find((field) => field in body) ?? null;
+}
+
 export const createProjectSchema = z
   .object({
     name: z.string().trim().min(1, "Nama wajib diisi").max(255),
-    status: projectStatusEnum.default("draft"),
     startDate: dateField,
     endDate: dateField,
   })
@@ -19,7 +24,6 @@ export const createProjectSchema = z
 export const updateProjectSchema = z
   .object({
     name: z.string().trim().min(1, "Nama wajib diisi").max(255).optional(),
-    status: projectStatusEnum.optional(),
     startDate: dateField.optional(),
     endDate: dateField.optional(),
   })

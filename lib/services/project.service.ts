@@ -4,7 +4,7 @@ import type {
   CreateProjectInput,
   UpdateProjectInput,
 } from "@/lib/validations/project";
-import type { Prisma } from "@/app/generated/prisma/client";
+import type { Prisma, Status } from "@/app/generated/prisma/client";
 
 export async function listProjects(filters: {
   status?: "draft" | "in_progress" | "done";
@@ -37,7 +37,6 @@ export async function createProject(data: CreateProjectInput) {
   const project = await prisma.project.create({
     data: {
       name: data.name,
-      status: data.status,
       startDate: data.startDate,
       endDate: data.endDate,
     },
@@ -55,4 +54,33 @@ export async function updateProject(id: bigint, data: UpdateProjectInput) {
 
 export async function deleteProject(id: bigint) {
   await prisma.project.delete({ where: { id } });
+}
+
+function deriveStatus(statuses: Status[]): Status {
+  if (statuses.length === 0) return "draft";
+  if (statuses.every((s) => s === "draft")) return "draft";
+  if (statuses.every((s) => s === "done")) return "done";
+  return "in_progress";
+}
+
+export async function recalculateProject(
+  id: bigint,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
+) {
+  const tasks = await client.task.findMany({
+    where: { projectId: id },
+    select: { status: true, weight: true },
+  });
+
+  const totalWeight = tasks.reduce((sum, t) => sum + t.weight, 0);
+  const doneWeight = tasks
+    .filter((t) => t.status === "done")
+    .reduce((sum, t) => sum + t.weight, 0);
+  const completionProgress = totalWeight === 0 ? 0 : (doneWeight / totalWeight) * 100;
+  const status = deriveStatus(tasks.map((t) => t.status));
+
+  await client.project.update({
+    where: { id },
+    data: { status, completionProgress },
+  });
 }
