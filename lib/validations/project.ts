@@ -15,6 +15,7 @@ export const createProjectSchema = z
     name: z.string().trim().min(1, "Nama wajib diisi").max(255),
     startDate: dateField,
     endDate: dateField,
+    dependsOn: z.array(z.coerce.number().int().positive()).optional(),
   })
   .refine((data) => data.endDate >= data.startDate, {
     message: "end_date harus >= start_date",
@@ -26,6 +27,7 @@ export const updateProjectSchema = z
     name: z.string().trim().min(1, "Nama wajib diisi").max(255).optional(),
     startDate: dateField.optional(),
     endDate: dateField.optional(),
+    dependsOn: z.array(z.coerce.number().int().positive()).optional(),
   })
   .refine(
     (data) =>
