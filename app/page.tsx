@@ -33,12 +33,14 @@ type ProjectFormState = {
   name: string;
   startDate: string;
   endDate: string;
+  dependsOn: number[];
 };
 
 const emptyProjectForm: ProjectFormState = {
   name: "",
   startDate: "",
   endDate: "",
+  dependsOn: [],
 };
 
 type TaskFormState = {
@@ -90,6 +92,7 @@ export default function Home() {
       name: project.name,
       startDate: toDateInputValue(project.startDate),
       endDate: toDateInputValue(project.endDate),
+      dependsOn: project.dependsOn,
     });
     setErrorMessage(null);
     setPanelMode("project");
@@ -451,6 +454,39 @@ export default function Home() {
                             onClick={(e) => e.currentTarget.showPicker?.()}
                             className="mt-1 w-full cursor-pointer rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                           />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                          Dependencies
+                        </label>
+                        <div className="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-md border border-zinc-300 p-2 dark:border-zinc-700">
+                          {projects
+                            ?.filter((p) => p.id !== editingProject?.id)
+                            .map((p) => (
+                              <label
+                                key={p.id}
+                                className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={projectForm.dependsOn.includes(p.id)}
+                                  onChange={(e) =>
+                                    setProjectForm({
+                                      ...projectForm,
+                                      dependsOn: e.target.checked
+                                        ? [...projectForm.dependsOn, p.id]
+                                        : projectForm.dependsOn.filter((id) => id !== p.id),
+                                    })
+                                  }
+                                />
+                                {p.name}
+                              </label>
+                            ))}
+                          {projects?.filter((p) => p.id !== editingProject?.id).length === 0 && (
+                            <p className="text-xs text-zinc-400">Belum ada project lain.</p>
+                          )}
                         </div>
                       </div>
                     </div>
