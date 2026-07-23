@@ -18,6 +18,7 @@ import {
   updateTask,
   type Task,
 } from "@/lib/api/tasks";
+import { applyTreeVisibility } from "@/lib/task-tree";
 
 const STATUS_LABEL: Record<ProjectStatus, string> = {
   draft: "Draft",
@@ -27,6 +28,100 @@ const STATUS_LABEL: Record<ProjectStatus, string> = {
 
 function toDateInputValue(isoString: string) {
   return isoString.slice(0, 10);
+}
+
+const PROJECT_COLORS = [
+  {
+    border: "border-l-rose-400",
+    dot: "bg-rose-400",
+    bg: "bg-rose-50 dark:bg-rose-950/30",
+    accent: "bg-rose-100/70 dark:bg-rose-950/50",
+  },
+  {
+    border: "border-l-orange-400",
+    dot: "bg-orange-400",
+    bg: "bg-orange-50 dark:bg-orange-950/30",
+    accent: "bg-orange-100/70 dark:bg-orange-950/50",
+  },
+  {
+    border: "border-l-amber-400",
+    dot: "bg-amber-400",
+    bg: "bg-amber-50 dark:bg-amber-950/30",
+    accent: "bg-amber-100/70 dark:bg-amber-950/50",
+  },
+  {
+    border: "border-l-emerald-400",
+    dot: "bg-emerald-400",
+    bg: "bg-emerald-50 dark:bg-emerald-950/30",
+    accent: "bg-emerald-100/70 dark:bg-emerald-950/50",
+  },
+  {
+    border: "border-l-teal-400",
+    dot: "bg-teal-400",
+    bg: "bg-teal-50 dark:bg-teal-950/30",
+    accent: "bg-teal-100/70 dark:bg-teal-950/50",
+  },
+  {
+    border: "border-l-sky-400",
+    dot: "bg-sky-400",
+    bg: "bg-sky-50 dark:bg-sky-950/30",
+    accent: "bg-sky-100/70 dark:bg-sky-950/50",
+  },
+  {
+    border: "border-l-indigo-400",
+    dot: "bg-indigo-400",
+    bg: "bg-indigo-50 dark:bg-indigo-950/30",
+    accent: "bg-indigo-100/70 dark:bg-indigo-950/50",
+  },
+  {
+    border: "border-l-violet-400",
+    dot: "bg-violet-400",
+    bg: "bg-violet-50 dark:bg-violet-950/30",
+    accent: "bg-violet-100/70 dark:bg-violet-950/50",
+  },
+] as const;
+
+function getProjectColor(projectId: number) {
+  return PROJECT_COLORS[projectId % PROJECT_COLORS.length];
+}
+
+const STATUS_BADGE: Record<ProjectStatus, string> = {
+  draft: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
+  in_progress: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
+  done: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300",
+};
+
+function CheckCircle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <span className="relative flex h-4 w-4 shrink-0 items-center justify-center">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="peer absolute inset-0 h-4 w-4 cursor-pointer opacity-0"
+      />
+      <span className="pointer-events-none h-4 w-4 rounded-full border border-zinc-400 bg-white transition-colors peer-checked:border-emerald-500 peer-checked:bg-emerald-500 dark:border-zinc-600 dark:bg-zinc-800" />
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        className="pointer-events-none absolute h-2.5 w-2.5 text-white opacity-0 transition-opacity peer-checked:opacity-100"
+      >
+        <path
+          d="M3.5 8.5L6.5 11.5L12.5 4.5"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </span>
+  );
 }
 
 type ProjectFormState = {
@@ -61,28 +156,184 @@ const emptyTaskForm: TaskFormState = {
   dependsOn: [],
 };
 
-function getTaskDepth(task: Task, taskById: Map<number, Task>): number {
-  let depth = 0;
-  let current: Task | undefined = task;
-  while (current && current.parentTaskId !== null) {
-    current = taskById.get(current.parentTaskId);
-    if (!current) break;
-    depth++;
-  }
-  return depth;
-}
-
 function countDescendantTasks(taskId: number, allTasks: Task[]): number {
   const children = allTasks.filter((t) => t.parentTaskId === taskId);
   return children.reduce((sum, child) => sum + 1 + countDescendantTasks(child.id, allTasks), 0);
 }
 
+function getDescendantTaskIds(taskId: number, allTasks: Task[]): number[] {
+  const children = allTasks.filter((t) => t.parentTaskId === taskId);
+  return children.flatMap((child) => [child.id, ...getDescendantTaskIds(child.id, allTasks)]);
+}
+
 type PanelMode = "project" | "task" | null;
+
+function buildChildrenMap(tasks: Task[]): Map<number | null, Task[]> {
+  const map = new Map<number | null, Task[]>();
+  for (const task of tasks) {
+    const key = task.parentTaskId;
+    const siblings = map.get(key);
+    if (siblings) siblings.push(task);
+    else map.set(key, [task]);
+  }
+  return map;
+}
+
+function ChevronToggle({
+  expanded,
+  onToggle,
+  title,
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+  title: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      title={title}
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-black/5 dark:text-zinc-400 dark:hover:bg-white/10"
+    >
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        className={`h-3 w-3 transition-transform ${expanded ? "rotate-90" : ""}`}
+      >
+        <path
+          d="M5 3l6 5-6 5"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  );
+}
+
+function TaskTree({
+  parentId,
+  depth,
+  childrenMap,
+  color,
+  collapsedTasks,
+  toggleTaskCollapse,
+  onEditTask,
+  onAddSubtask,
+}: {
+  parentId: number | null;
+  depth: number;
+  childrenMap: Map<number | null, Task[]>;
+  color: (typeof PROJECT_COLORS)[number];
+  collapsedTasks: Set<number>;
+  toggleTaskCollapse: (id: number) => void;
+  onEditTask: (task: Task) => void;
+  onAddSubtask: (taskId: number) => void;
+}) {
+  const children = childrenMap.get(parentId) ?? [];
+  if (children.length === 0) return null;
+
+  return (
+    <ul
+      className={
+        depth === 0
+          ? "space-y-2.5"
+          : "ml-2 space-y-2.5 border-l border-dashed border-zinc-400/40 pl-4 dark:border-zinc-500/30"
+      }
+    >
+      {children.map((task) => {
+        const hasChildren = (childrenMap.get(task.id)?.length ?? 0) > 0;
+        const expanded = !collapsedTasks.has(task.id);
+        return (
+          <li key={task.id} className={task.dimmed ? "opacity-60" : undefined}>
+            <div className="flex items-center gap-1">
+              {hasChildren ? (
+                <ChevronToggle
+                  expanded={expanded}
+                  onToggle={() => toggleTaskCollapse(task.id)}
+                  title={expanded ? "Sembunyikan subtask" : "Tampilkan subtask"}
+                />
+              ) : (
+                <span className="w-5 shrink-0" />
+              )}
+              <button
+                type="button"
+                onClick={() => onEditTask(task)}
+                className="min-w-0 flex-1 rounded-md px-2 py-2 text-left hover:bg-white/60 dark:hover:bg-black/20"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2 text-sm text-zinc-800 dark:text-zinc-200">
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${color.dot}`} />
+                    {task.name}
+                  </span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[task.status]}`}
+                  >
+                    {STATUS_LABEL[task.status]}
+                  </span>
+                </div>
+                <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Bobot {task.weight}
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => onAddSubtask(task.id)}
+                title="Tambah subtask ke task ini"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-zinc-300 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              >
+                +
+              </button>
+            </div>
+            {hasChildren && expanded && (
+              <div className="mt-2.5">
+                <TaskTree
+                  parentId={task.id}
+                  depth={depth + 1}
+                  childrenMap={childrenMap}
+                  color={color}
+                  collapsedTasks={collapsedTasks}
+                  toggleTaskCollapse={toggleTaskCollapse}
+                  onEditTask={onEditTask}
+                  onAddSubtask={onAddSubtask}
+                />
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 export default function Home() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | "">("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<number>>(new Set());
+  const [collapsedTasks, setCollapsedTasks] = useState<Set<number>>(new Set());
+
+  function toggleProjectCollapse(id: number) {
+    setCollapsedProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleTaskCollapse(id: number) {
+    setCollapsedTasks((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const { data: projects, isLoading: isLoadingProjects } = useQuery({
     queryKey: ["projects"],
@@ -156,16 +407,6 @@ export default function Home() {
     setPanelMode(null);
   }
 
-  const invalidateProjects = () =>
-    queryClient.invalidateQueries({ queryKey: ["projects"] });
-  const invalidateTasks = () =>
-    queryClient.invalidateQueries({ queryKey: ["tasks"] });
-  const invalidateFilteredTasks = () =>
-    queryClient.invalidateQueries({
-      queryKey: ["tasks", statusFilter, searchTerm],
-      exact: true,
-    });
-
   function patchProjectsCache(entries: Project[]) {
     if (entries.length === 0) return;
     queryClient.setQueryData<Project[]>(["projects"], (old) => {
@@ -186,12 +427,41 @@ export default function Home() {
     });
   }
 
+  function removeProjectCache(projectId: number) {
+    queryClient.setQueryData<Project[]>(["projects"], (old) =>
+      old ? old.filter((p) => p.id !== projectId) : old,
+    );
+    queryClient.setQueryData<Task[]>(["tasks", "all"], (old) =>
+      old ? old.filter((t) => t.projectId !== projectId) : old,
+    );
+  }
+
+  function removeTaskCache(taskId: number) {
+    const all = queryClient.getQueryData<Task[]>(["tasks", "all"]) ?? [];
+    const removeIds = new Set([taskId, ...getDescendantTaskIds(taskId, all)]);
+    queryClient.setQueryData<Task[]>(["tasks", "all"], (old) =>
+      old ? old.filter((t) => !removeIds.has(t.id)) : old,
+    );
+  }
+
+  function syncFilteredTasksCache() {
+    const all = queryClient.getQueryData<Task[]>(["tasks", "all"]);
+    if (!all) return;
+    queryClient.setQueryData(
+      ["tasks", statusFilter, searchTerm],
+      applyTreeVisibility(all, {
+        status: statusFilter || undefined,
+        search: searchTerm || undefined,
+      }),
+    );
+  }
+
   const createProjectMutation = useMutation({
     mutationFn: createProject,
     onSuccess: ({ data, affected }) => {
       patchProjectsCache([data, ...affected.projects]);
       patchTasksAllCache(affected.tasks);
-      invalidateFilteredTasks();
+      syncFilteredTasksCache();
       closePanel();
     },
     onError: (err: Error) => setErrorMessage(err.message),
@@ -203,7 +473,7 @@ export default function Home() {
     onSuccess: ({ data, affected }) => {
       patchProjectsCache([data, ...affected.projects]);
       patchTasksAllCache(affected.tasks);
-      invalidateFilteredTasks();
+      syncFilteredTasksCache();
       closePanel();
     },
     onError: (err: Error) => setErrorMessage(err.message),
@@ -211,9 +481,9 @@ export default function Home() {
 
   const deleteProjectMutation = useMutation({
     mutationFn: deleteProject,
-    onSuccess: () => {
-      invalidateProjects();
-      invalidateTasks();
+    onSuccess: (_data, projectId) => {
+      removeProjectCache(projectId);
+      syncFilteredTasksCache();
       closePanel();
     },
     onError: (err: Error) => setErrorMessage(err.message),
@@ -224,7 +494,7 @@ export default function Home() {
     onSuccess: ({ data, affected }) => {
       patchTasksAllCache([data, ...affected.tasks]);
       patchProjectsCache(affected.projects);
-      invalidateFilteredTasks();
+      syncFilteredTasksCache();
       closePanel();
     },
     onError: (err: Error) => setErrorMessage(err.message),
@@ -248,7 +518,7 @@ export default function Home() {
     onSuccess: ({ data, affected }) => {
       patchTasksAllCache([data, ...affected.tasks]);
       patchProjectsCache(affected.projects);
-      invalidateFilteredTasks();
+      syncFilteredTasksCache();
       closePanel();
     },
     onError: (err: Error) => setErrorMessage(err.message),
@@ -256,9 +526,11 @@ export default function Home() {
 
   const deleteTaskMutation = useMutation({
     mutationFn: deleteTask,
-    onSuccess: () => {
-      invalidateTasks();
-      invalidateProjects();
+    onSuccess: ({ affected }, taskId) => {
+      removeTaskCache(taskId);
+      patchTasksAllCache(affected.tasks);
+      patchProjectsCache(affected.projects);
+      syncFilteredTasksCache();
       closePanel();
     },
     onError: (err: Error) => setErrorMessage(err.message),
@@ -336,9 +608,13 @@ export default function Home() {
   const blockingDependencies =
     allTasks?.filter((t) => taskForm.dependsOn.includes(t.id) && t.status !== "done") ?? [];
 
+  const projectPanelColor = editingProject ? getProjectColor(editingProject.id) : null;
+  const taskPanelColor =
+    typeof taskForm.projectId === "number" ? getProjectColor(taskForm.projectId) : null;
+
   return (
-    <div className="flex h-screen bg-zinc-50 font-sans dark:bg-black">
-      <div className="flex w-full flex-col overflow-y-auto border-r border-zinc-200 dark:border-zinc-800">
+    <div className="flex h-screen bg-zinc-50 font-sans dark:bg-zinc-900">
+      <div className="scrollbar-thin flex w-full flex-col overflow-y-auto border-r border-zinc-200 dark:border-zinc-800">
         <header className="flex items-center gap-3 border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
           <button
             type="button"
@@ -391,11 +667,10 @@ export default function Home() {
             </p>
           )}
 
-          <ul className="space-y-3">
+          <ul className="space-y-4">
             {projects
               ?.map((project) => {
                 const projectTasks = tasks?.filter((t) => t.projectId === project.id) ?? [];
-                const taskById = new Map(projectTasks.map((t) => [t.id, t]));
 
                 const hasActiveFilter = statusFilter !== "" || searchTerm !== "";
                 const projectMatches =
@@ -405,24 +680,41 @@ export default function Home() {
                 const visible = !hasActiveFilter || projectMatches || projectTasks.length > 0;
                 const dimmed = hasActiveFilter && !projectMatches && projectTasks.length > 0;
 
-                return { project, projectTasks, taskById, visible, dimmed };
+                return { project, projectTasks, visible, dimmed };
               })
               .filter((entry) => entry.visible)
-              .map(({ project, projectTasks, taskById, dimmed }) => {
+              .map(({ project, projectTasks, dimmed }) => {
+                const color = getProjectColor(project.id);
+                const childrenMap = buildChildrenMap(projectTasks);
+                const projectExpanded = !collapsedProjects.has(project.id);
                 return (
                 <li key={project.id} className={dimmed ? "opacity-60" : undefined}>
-                  <div className="rounded-md border border-zinc-200 dark:border-zinc-800">
+                  <div
+                    className={`overflow-hidden rounded-md border border-l-4 border-zinc-200 dark:border-zinc-700/80 ${color.border} ${color.bg}`}
+                  >
                     <div className="flex items-center gap-2 px-4 py-3">
+                      {projectTasks.length > 0 ? (
+                        <ChevronToggle
+                          expanded={projectExpanded}
+                          onToggle={() => toggleProjectCollapse(project.id)}
+                          title={projectExpanded ? "Sembunyikan task" : "Tampilkan task"}
+                        />
+                      ) : (
+                        <span className="w-5 shrink-0" />
+                      )}
                       <button
                         type="button"
                         onClick={() => openEditProjectPanel(project)}
                         className="min-w-0 flex-1 text-left"
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                          <span className="flex items-center gap-2 font-medium text-zinc-900 dark:text-zinc-100">
+                            <span className={`h-2 w-2 shrink-0 rounded-full ${color.dot}`} />
                             {project.name}
                           </span>
-                          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[project.status]}`}
+                          >
                             {STATUS_LABEL[project.status]}
                           </span>
                         </div>
@@ -442,44 +734,21 @@ export default function Home() {
                       </button>
                     </div>
 
-                    {projectTasks.length > 0 && (
-                      <ul className="space-y-1 border-t border-zinc-100 px-4 py-2 dark:border-zinc-900">
-                        {projectTasks.map((task) => (
-                          <li
-                            key={task.id}
-                            style={{ paddingLeft: getTaskDepth(task, taskById) * 20 + 16 }}
-                            className={task.dimmed ? "opacity-60" : undefined}
-                          >
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => openEditTaskPanel(task)}
-                                className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                              >
-                                <div className="flex items-center justify-between">
-                                  <span className="text-sm text-zinc-800 dark:text-zinc-200">
-                                    {task.name}
-                                  </span>
-                                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                                    {STATUS_LABEL[task.status]}
-                                  </span>
-                                </div>
-                                <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                                  Bobot {task.weight}
-                                </div>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => openCreateTaskPanel(project.id, task.id)}
-                                title="Tambah subtask ke task ini"
-                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-zinc-300 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                              >
-                                +
-                              </button>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
+                    {projectTasks.length > 0 && projectExpanded && (
+                      <div
+                        className={`border-t border-zinc-950/5 px-4 py-3 dark:border-white/5 ${color.accent}`}
+                      >
+                        <TaskTree
+                          parentId={null}
+                          depth={0}
+                          childrenMap={childrenMap}
+                          color={color}
+                          collapsedTasks={collapsedTasks}
+                          toggleTaskCollapse={toggleTaskCollapse}
+                          onEditTask={openEditTaskPanel}
+                          onAddSubtask={(taskId) => openCreateTaskPanel(project.id, taskId)}
+                        />
+                      </div>
                     )}
                   </div>
                 </li>
@@ -511,16 +780,22 @@ export default function Home() {
               leaveFrom="translate-x-0"
               leaveTo="translate-x-full"
             >
-              <DialogPanel className="flex h-full w-full max-w-md flex-col bg-white dark:bg-zinc-950">
+              <DialogPanel className="flex h-full w-full max-w-md flex-col bg-white dark:bg-zinc-900">
                 {panelMode === "project" && (
                   <form onSubmit={handleProjectSubmit} className="flex h-full flex-col">
-                    <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
-                      <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                    {projectPanelColor && <div className={`h-1.5 shrink-0 ${projectPanelColor.dot}`} />}
+                    <div
+                      className={`flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800 ${projectPanelColor?.bg ?? ""}`}
+                    >
+                      <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                        {projectPanelColor && (
+                          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${projectPanelColor.dot}`} />
+                        )}
                         {editingProject ? "Edit Project" : "Add Project"}
                       </h2>
                     </div>
 
-                    <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+                    <div className="scrollbar-thin flex-1 space-y-4 overflow-y-auto px-6 py-4">
                       {errorMessage && (
                         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
                           {errorMessage}
@@ -547,7 +822,9 @@ export default function Home() {
                           Status
                         </label>
                         <div className="mt-1">
-                          <span className="inline-block rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                          <span
+                            className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${STATUS_BADGE[editingProject?.status ?? "draft"]}`}
+                          >
                             {STATUS_LABEL[editingProject?.status ?? "draft"]}
                           </span>
                         </div>
@@ -593,21 +870,20 @@ export default function Home() {
                         <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
                           Dependencies
                         </label>
-                        <div className="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-md border border-zinc-300 p-2 dark:border-zinc-700">
+                        <div className="scrollbar-thin mt-1 max-h-40 space-y-1 overflow-y-auto rounded-md border border-zinc-300 p-2 dark:border-zinc-700">
                           {projects
                             ?.filter((p) => p.id !== editingProject?.id)
                             .map((p) => (
                               <label
                                 key={p.id}
-                                className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300"
+                                className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
                               >
-                                <input
-                                  type="checkbox"
+                                <CheckCircle
                                   checked={projectForm.dependsOn.includes(p.id)}
-                                  onChange={(e) =>
+                                  onChange={(checked) =>
                                     setProjectForm({
                                       ...projectForm,
-                                      dependsOn: e.target.checked
+                                      dependsOn: checked
                                         ? [...projectForm.dependsOn, p.id]
                                         : projectForm.dependsOn.filter((id) => id !== p.id),
                                     })
@@ -649,13 +925,19 @@ export default function Home() {
 
                 {panelMode === "task" && (
                   <form onSubmit={handleTaskSubmit} className="flex h-full flex-col">
-                    <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
-                      <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                    {taskPanelColor && <div className={`h-1.5 shrink-0 ${taskPanelColor.dot}`} />}
+                    <div
+                      className={`flex items-center justify-between border-b border-zinc-200 px-6 py-4 dark:border-zinc-800 ${taskPanelColor?.bg ?? ""}`}
+                    >
+                      <h2 className="flex items-center gap-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                        {taskPanelColor && (
+                          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${taskPanelColor.dot}`} />
+                        )}
                         {editingTask ? "Edit Task" : "Add Task"}
                       </h2>
                     </div>
 
-                    <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+                    <div className="scrollbar-thin flex-1 space-y-4 overflow-y-auto px-6 py-4">
                       {errorMessage && (
                         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
                           {errorMessage}
@@ -735,7 +1017,9 @@ export default function Home() {
                         {editingTaskHasChildren ? (
                           <>
                             <div className="mt-1">
-                              <span className="inline-block rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                              <span
+                                className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${STATUS_BADGE[editingTask?.status ?? "draft"]}`}
+                              >
                                 {STATUS_LABEL[editingTask?.status ?? "draft"]}
                               </span>
                             </div>
@@ -802,21 +1086,20 @@ export default function Home() {
                         <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
                           Dependencies
                         </label>
-                        <div className="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-md border border-zinc-300 p-2 dark:border-zinc-700">
+                        <div className="scrollbar-thin mt-1 max-h-40 space-y-1 overflow-y-auto rounded-md border border-zinc-300 p-2 dark:border-zinc-700">
                           {allTasks
                             ?.filter((t) => t.id !== editingTask?.id)
                             .map((t) => (
                               <label
                                 key={t.id}
-                                className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300"
+                                className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
                               >
-                                <input
-                                  type="checkbox"
+                                <CheckCircle
                                   checked={taskForm.dependsOn.includes(t.id)}
-                                  onChange={(e) =>
+                                  onChange={(checked) =>
                                     setTaskForm({
                                       ...taskForm,
-                                      dependsOn: e.target.checked
+                                      dependsOn: checked
                                         ? [...taskForm.dependsOn, t.id]
                                         : taskForm.dependsOn.filter((id) => id !== t.id),
                                     })
