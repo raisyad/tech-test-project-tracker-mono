@@ -18,10 +18,19 @@ export class DependencyNotDoneError extends Error {
   }
 }
 
-export class DependentEntityExistsError extends Error {
-  dependents: { id: number; name: string }[];
+export type DependentEntity = {
+  id: number;
+  name: string;
+  projectId?: number;
+  projectName?: string;
+  blockedTaskId?: number;
+  blockedTaskName?: string;
+};
 
-  constructor(dependents: { id: number; name: string }[]) {
+export class DependentEntityExistsError extends Error {
+  dependents: DependentEntity[];
+
+  constructor(dependents: DependentEntity[]) {
     super("Entity masih di-depend oleh entity lain");
     this.dependents = dependents;
   }

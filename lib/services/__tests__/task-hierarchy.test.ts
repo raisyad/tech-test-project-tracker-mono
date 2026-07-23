@@ -45,7 +45,7 @@ describe("subtask hierarchy and filtering", () => {
     expect(detail?.completionProgress).toBe(100);
   });
 
-  it("derives a non-leaf task's status from its direct children (§5.2 recursive)", async () => {
+  it("derives a non-leaf task's status from its direct children", async () => {
     const project = await makeProject();
     const { task: parent } = await createTask({
       projectId: project.id,
@@ -148,7 +148,7 @@ describe("subtask hierarchy and filtering", () => {
     ).rejects.toThrow(InvalidParentTaskError);
   });
 
-  describe("applyTreeVisibility (§5.7 match/visible algorithm)", () => {
+  describe("applyTreeVisibility", () => {
     type T = { id: number; parentTaskId: number | null; name: string; status: string };
 
     it("shows an ancestor dimmed when only its descendant matches the filter", () => {

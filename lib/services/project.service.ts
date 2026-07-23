@@ -213,11 +213,21 @@ export async function deleteProject(id: bigint) {
           dependsOnTaskId: { in: taskIds },
           task: { projectId: { not: id } },
         },
-        include: { task: { select: { id: true, name: true } } },
+        include: {
+          task: { select: { id: true, name: true, projectId: true, project: { select: { name: true } } } },
+          dependsOnTask: { select: { id: true, name: true } },
+        },
       });
       if (externalDependents.length > 0) {
         throw new DependentEntityExistsError(
-          externalDependents.map((d) => ({ id: Number(d.task.id), name: d.task.name })),
+          externalDependents.map((d) => ({
+            id: Number(d.task.id),
+            name: d.task.name,
+            projectId: Number(d.task.projectId),
+            projectName: d.task.project.name,
+            blockedTaskId: Number(d.dependsOnTask.id),
+            blockedTaskName: d.dependsOnTask.name,
+          })),
         );
       }
     }

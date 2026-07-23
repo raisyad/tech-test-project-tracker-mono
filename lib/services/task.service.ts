@@ -179,7 +179,8 @@ export async function updateTask(
     const existing = await tx.task.findUniqueOrThrow({ where: { id } });
 
     const childrenCount = await tx.task.count({ where: { parentTaskId: id } });
-    if (childrenCount > 0 && data.status !== undefined) {
+    const isLeaf = childrenCount === 0;
+    if (!isLeaf && data.status !== undefined) {
       throw new ReadonlyFieldError("status");
     }
 
@@ -188,7 +189,8 @@ export async function updateTask(
     }
 
     const nextStatus = data.status ?? existing.status;
-    if (nextStatus === "done" && existing.status !== "done") {
+ 
+    if (isLeaf && nextStatus === "done") {
       await assertDependenciesDone(tx, id);
     }
 
@@ -263,12 +265,22 @@ export async function deleteTask(id: bigint): Promise<{ affected: AffectedResult
         dependsOnTaskId: { in: subtreeIds },
         taskId: { notIn: subtreeIds },
       },
-      include: { task: { select: { id: true, name: true } } },
+      include: {
+        task: { select: { id: true, name: true, projectId: true, project: { select: { name: true } } } },
+        dependsOnTask: { select: { id: true, name: true } },
+      },
     });
 
     if (dependents.length > 0) {
       throw new DependentEntityExistsError(
-        dependents.map((d) => ({ id: Number(d.task.id), name: d.task.name })),
+        dependents.map((d) => ({
+          id: Number(d.task.id),
+          name: d.task.name,
+          projectId: Number(d.task.projectId),
+          projectName: d.task.project.name,
+          blockedTaskId: Number(d.dependsOnTask.id),
+          blockedTaskName: d.dependsOnTask.name,
+        })),
       );
     }
 
