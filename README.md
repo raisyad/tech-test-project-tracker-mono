@@ -78,3 +78,8 @@ Ada unit test buat rule-rule domain yang agak tricky (progress calculation, depe
 ```bash
 npm run test
 ```
+
+## NOTES
+
+- 4 variabel di `.env` (`MYSQL_DATABASE`, `MYSQL_ROOT_PASSWORD`, `MYSQL_PORT`, `DATABASE_URL`) harus saling konsisten — `docker-compose.yml` pakai 3 variabel pertama untuk membuat container MySQL-nya, sedangkan `DATABASE_URL` adalah connection string terpisah yang dipakai Prisma untuk connect. Pastikan user (`root`), password, port, dan nama database di `DATABASE_URL` sama persis dengan yang diisi di 3 variabel lainnya, kalau tidak Prisma akan gagal connect.
+- Tidak ada seed data — setelah setup selesai, aplikasi mulai dari kondisi kosong (belum ada project/task sama sekali).
